@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+
+# Angular
+.angular/
+.sass-cache/
+connect.lock
+typings/
+
+# NestJS
+*.tsbuildinfo
+
+# Prisma
+# generated client lives under node_modules; nothing to ignore in repo
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Misc
+*.tgz
+.eslintcache
+.cache/
+/.claude/
+LEARNED.md

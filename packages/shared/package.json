@@ -1,0 +1,19 @@
+{
+  "name": "@enroll/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared TypeScript types and enums consumed by apps/api and apps/web",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
