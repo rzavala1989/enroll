@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -17,9 +18,17 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
 
 import { DropDto, EnrollDto, EnrollFailureDto, EnrollmentResultDto } from './dto/enroll.dto';
-import { EnrollmentService } from './enrollment.service';
+import { EnrollmentService, RequestActor } from './enrollment.service';
+
+function actorFrom(req: Request): RequestActor {
+  return {
+    ipAddress: req.ip ?? null,
+    userAgent: req.get('user-agent') ?? null,
+  };
+}
 
 @ApiTags('enrollment')
 @Controller('enrollments')
@@ -37,8 +46,11 @@ export class EnrollmentController {
   @ApiConflictResponse({ type: EnrollFailureDto })
   @ApiBadRequestResponse({ type: EnrollFailureDto })
   @ApiNotFoundResponse({ type: EnrollFailureDto })
-  enroll(@Body() body: EnrollDto): Promise<EnrollmentResultDto> {
-    return this.enrollmentService.enroll(body);
+  enroll(
+    @Body() body: EnrollDto,
+    @Req() req: Request,
+  ): Promise<EnrollmentResultDto> {
+    return this.enrollmentService.enroll(body, actorFrom(req));
   }
 
   @Patch(':id/drop')
@@ -47,7 +59,8 @@ export class EnrollmentController {
   drop(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: DropDto,
+    @Req() req: Request,
   ): Promise<EnrollmentResultDto> {
-    return this.enrollmentService.drop(id, body);
+    return this.enrollmentService.drop(id, body, actorFrom(req));
   }
 }

@@ -6,15 +6,25 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EnrollmentStatus, Prisma } from '@prisma/client';
+import { AuditAction } from '@enroll/shared';
 
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DropDto, EnrollDto, EnrollmentResultDto } from './dto/enroll.dto';
+
+export interface RequestActor {
+  ipAddress: string | null;
+  userAgent: string | null;
+}
 
 @Injectable()
 export class EnrollmentService {
   private readonly logger = new Logger(EnrollmentService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /**
    * Enroll a student in a section.
@@ -38,7 +48,10 @@ export class EnrollmentService {
    * Pessimistic locking takes the cost upfront, gets predictable
    * latency, and lets Postgres serialize seat allocation cleanly.
    */
-  async enroll(input: EnrollDto): Promise<EnrollmentResultDto> {
+  async enroll(
+    input: EnrollDto,
+    actor: RequestActor,
+  ): Promise<EnrollmentResultDto> {
     return this.prisma.$transaction(async (tx) => {
       // 1. Section + Term gate.
       const section = await tx.section.findUnique({
@@ -154,6 +167,21 @@ export class EnrollmentService {
         select: { capacity: true, enrolledCount: true },
       });
 
+      await this.audit.recordEvent(tx, {
+        action: AuditAction.ENROLLMENT_CREATED,
+        actor: {
+          userId: input.studentId,
+          ipAddress: actor.ipAddress,
+          userAgent: actor.userAgent,
+        },
+        target: { type: 'enrollment', id: enrollment.id },
+        before: null,
+        after: {
+          sectionId: enrollment.sectionId,
+          status: enrollment.status,
+        },
+      });
+
       return {
         ...enrollment,
         enrolledAt: enrollment.enrolledAt.toISOString(),
@@ -178,6 +206,7 @@ export class EnrollmentService {
   async drop(
     enrollmentId: string,
     input: DropDto,
+    actor: RequestActor,
   ): Promise<EnrollmentResultDto> {
     return this.prisma.$transaction(async (tx) => {
       const enrollment = await tx.enrollment.findUnique({
@@ -235,6 +264,24 @@ export class EnrollmentService {
         select: { capacity: true, enrolledCount: true },
       });
 
+      await this.audit.recordEvent(tx, {
+        action: AuditAction.ENROLLMENT_DROPPED,
+        actor: {
+          userId: input.studentId,
+          ipAddress: actor.ipAddress,
+          userAgent: actor.userAgent,
+        },
+        target: { type: 'enrollment', id: dropped.id },
+        before: {
+          sectionId: dropped.sectionId,
+          status: enrollment.status,
+        },
+        after: {
+          sectionId: dropped.sectionId,
+          status: dropped.status,
+        },
+      });
+
       return {
         ...dropped,
         enrolledAt: dropped.enrolledAt.toISOString(),
@@ -248,7 +295,3 @@ export class EnrollmentService {
 // TODO(phase 6): when SECTION_FULL fires, instead of rejecting outright,
 // create a WAITLISTED enrollment row and enqueue a BullMQ job for the
 // next-in-line promotion when a seat opens (drop or admin override).
-//
-// TODO(phase 5): emit an audit event from the same transaction commit
-// recording (actor, action, target, before, after). Mongo append-only
-// collection, INSERT-only DB role.
