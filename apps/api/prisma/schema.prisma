@@ -28,96 +28,102 @@ enum Season {
 }
 
 model User {
-  id            String   @id @default(uuid()) @db.Uuid
-  email         String   @unique
-  passwordHash  String
-  firstName     String
-  lastName      String
-  roles         Role[]   @default([STUDENT])
+  id           String @id @default(uuid()) @db.Uuid
+  email        String @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  roles        Role[] @default([STUDENT])
 
   // self-referential: a user (advisee) has one advisor (also a User)
-  advisorId     String?  @db.Uuid
-  advisor       User?    @relation("AdvisorAdvisee", fields: [advisorId], references: [id])
-  advisees      User[]   @relation("AdvisorAdvisee")
+  advisorId String? @db.Uuid
+  advisor   User?   @relation("AdvisorAdvisee", fields: [advisorId], references: [id])
+  advisees  User[]  @relation("AdvisorAdvisee")
 
-  enrollments   Enrollment[]
+  enrollments Enrollment[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([advisorId])
 }
 
 model Term {
-  id                  String   @id @default(uuid()) @db.Uuid
-  season              Season
-  year                Int
-  startDate           DateTime
-  endDate             DateTime
-  registrationOpens   DateTime
-  registrationCloses  DateTime
+  id                 String   @id @default(uuid()) @db.Uuid
+  season             Season
+  year               Int
+  startDate          DateTime
+  endDate            DateTime
+  registrationOpens  DateTime
+  registrationCloses DateTime
 
-  sections            Section[]
+  sections Section[]
 
   @@unique([season, year])
 }
 
 model Course {
-  id          String   @id @default(uuid()) @db.Uuid
-  code        String   @unique  // e.g. "CS101"
-  title       String              // e.g. "Intro to Computer Science"
+  id          String  @id @default(uuid()) @db.Uuid
+  code        String  @unique // e.g. "CS101"
+  title       String // e.g. "Intro to Computer Science"
   description String?
   credits     Int
 
-  sections    Section[]
+  sections Section[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // Generated FTS column maintained by Postgres. Declared here so
+  // `prisma migrate dev` does not detect drift; Unsupported types are
+  // automatically excluded from the generated client, so raw queries
+  // reach this column via $queryRaw.
+  searchVector Unsupported("tsvector")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Section {
-  id              String   @id @default(uuid()) @db.Uuid
-  sectionNumber   String              // e.g. "001"
+  id            String @id @default(uuid()) @db.Uuid
+  sectionNumber String // e.g. "001"
 
-  courseId        String   @db.Uuid
-  course          Course   @relation(fields: [courseId], references: [id])
+  courseId String @db.Uuid
+  course   Course @relation(fields: [courseId], references: [id])
 
-  termId          String   @db.Uuid
-  term            Term     @relation(fields: [termId], references: [id])
+  termId String @db.Uuid
+  term   Term   @relation(fields: [termId], references: [id])
 
-  instructorName  String
-  meetingPattern  String              // e.g. "MWF 9:00-9:50"
-  room            String
+  instructorName String
+  meetingPattern String // e.g. "MWF 9:00-9:50"
+  room           String
 
-  capacity        Int
-  enrolledCount   Int      @default(0)  // denormalized for performance
+  capacity      Int
+  enrolledCount Int @default(0) // denormalized for performance
 
-  enrollments     Enrollment[]
+  enrollments Enrollment[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([courseId, sectionNumber, termId])
   @@index([termId])
 }
 
 model Enrollment {
-  id          String           @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  studentId   String           @db.Uuid
-  student     User             @relation(fields: [studentId], references: [id])
+  studentId String @db.Uuid
+  student   User   @relation(fields: [studentId], references: [id])
 
-  sectionId   String           @db.Uuid
-  section     Section          @relation(fields: [sectionId], references: [id])
+  sectionId String  @db.Uuid
+  section   Section @relation(fields: [sectionId], references: [id])
 
-  status      EnrollmentStatus @default(ENROLLED)
+  status EnrollmentStatus @default(ENROLLED)
 
-  enrolledAt  DateTime         @default(now())
+  enrolledAt  DateTime  @default(now())
   droppedAt   DateTime?
   completedAt DateTime?
 
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // TODO: a student can only have one ACTIVE enrollment per section, but they
   // could drop and re-enroll. Enforce via partial unique index in a follow-up
@@ -126,4 +132,27 @@ model Enrollment {
   @@index([studentId])
   @@index([sectionId])
   @@index([status])
+}
+
+// Phase 5 audit outbox. Rows are written inside the same Postgres
+// transaction as the business mutation, then drained to Mongo by the
+// AuditOutboxWorker. Index on (drainedAt, id) supports the worker's
+// "oldest undrained first" scan with `WHERE drainedAt IS NULL`.
+model AuditOutbox {
+  id BigInt @id @default(autoincrement())
+
+  action          String
+  actorUserId     String? @db.Uuid
+  actorIp         String?
+  actorUserAgent  String?
+
+  targetType String
+  targetId   String
+
+  payload Json
+
+  createdAt DateTime  @default(now())
+  drainedAt DateTime?
+
+  @@index([drainedAt, id])
 }

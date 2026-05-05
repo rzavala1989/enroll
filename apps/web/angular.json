@@ -32,7 +32,8 @@
               }
             ],
             "styles": ["src/styles.scss"],
-            "scripts": []
+            "scripts": [],
+            "allowedCommonJsDependencies": ["@enroll/shared"]
           },
           "configurations": {
             "production": {
