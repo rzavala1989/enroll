@@ -20,7 +20,9 @@
     "prisma": "prisma",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:format": "prisma format"
   },
   "dependencies": {
     "@enroll/shared": "workspace:*",
@@ -38,11 +40,13 @@
     "cache-manager": "^5.7.6",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cookie-parser": "^1.4.7",
     "mongodb": "^7.2.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@faker-js/faker": "^9.2.0",
@@ -50,6 +54,7 @@
     "@nestjs/schematics": "^10.2.3",
     "@nestjs/testing": "^10.4.4",
     "@types/bcrypt": "^5.0.2",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.0",
     "@types/jest": "^29.5.13",
     "@types/node": "^22.7.5",
@@ -73,7 +78,8 @@
     "typescript": "^5.5.4"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "schema": "prisma/schema.prisma"
   },
   "jest": {
     "moduleFileExtensions": [

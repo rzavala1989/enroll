@@ -1,0 +1,149 @@
+import {
+    Injectable,
+    UnauthorizedException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
+import { randomBytes, createHash } from 'crypto';
+import * as bcrypt from 'bcrypt';
+import { v4 as uuidv4 } from 'uuid';
+import { LoginDto } from './dto/login.dto';
+
+// ── Token config ──────────────────────────────────────
+const ACCESS_TOKEN_EXPIRY = '15m';
+const REFRESH_TOKEN_EXPIRY_DAYS = 7;
+
+// ── Types ─────────────────────────────────────────────
+interface TokenPair {
+    accessToken: string;
+    refreshToken: string;
+}
+
+interface JwtPayload {
+    sub: string;
+    roles: string[];
+    jti: string;
+}
+
+@Injectable()
+export class AuthService {
+    constructor(
+        private readonly jwt: JwtService,
+        private readonly prisma: PrismaService,
+    ) {}
+
+    // ── Login ───────────────────────────────────────────
+    async login(dto: LoginDto): Promise<TokenPair> {
+        const { email, password } = dto;
+        const user = await this.prisma.user.findUnique({ where: { email } });
+        if (!user) throw new UnauthorizedException('Invalid credentials');
+
+        const passwordValid = await bcrypt.compare(password, user.passwordHash);
+        if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+
+        return this.generateTokenPair(user.id, user.roles, uuidv4());
+    }
+
+    // ── Refresh ─────────────────────────────────────────
+    async refresh(rawRefreshToken: string): Promise<TokenPair> {
+        const tokenHash = this.hashToken(rawRefreshToken);
+
+        const stored = await this.prisma.refreshToken.findUnique({
+            where: { tokenHash },
+            include: { user: { select: { id: true, roles: true } } },
+        });
+
+        // Token doesn't exist at all
+        if (!stored) throw new UnauthorizedException('Invalid refresh token');
+
+        // REUSE DETECTION: token was already revoked, someone replayed it
+        if (stored.revokedAt) {
+            await this.revokeFamily(stored.family);
+            throw new UnauthorizedException('Token reuse detected');
+        }
+
+        // Token expired naturally
+        if (stored.expiresAt < new Date()) {
+            throw new UnauthorizedException('Refresh token expired');
+        }
+
+        // Rotate: issue new pair in the same family
+        const newPair = await this.generateTokenPair(
+            stored.user.id,
+            stored.user.roles,
+            stored.family,
+        );
+
+        // Revoke the old token, link it to its replacement
+        const newTokenHash = this.hashToken(newPair.refreshToken);
+        const replacement = await this.prisma.refreshToken.findUnique({
+            where: { tokenHash: newTokenHash },
+            select: { id: true },
+        });
+
+        await this.prisma.refreshToken.update({
+            where: { id: stored.id },
+            data: {
+                revokedAt: new Date(),
+                replacedById: replacement?.id ?? null,
+            },
+        });
+
+        return newPair;
+    }
+
+    // ── Logout ──────────────────────────────────────────
+    async logout(rawRefreshToken: string): Promise<void> {
+        const tokenHash = this.hashToken(rawRefreshToken);
+
+        await this.prisma.refreshToken.updateMany({
+            where: { tokenHash, revokedAt: null },
+            data: { revokedAt: new Date() },
+        });
+    }
+
+    // ── Private helpers ─────────────────────────────────
+
+    private async generateTokenPair(
+        userId: string,
+        roles: string[],
+        family: string,
+    ): Promise<TokenPair> {
+        const jti = uuidv4();
+        const accessToken = this.jwt.sign(
+            { sub: userId, roles, jti },
+            { expiresIn: ACCESS_TOKEN_EXPIRY },
+        );
+
+        const rawRefreshToken = randomBytes(32).toString('hex');
+        const tokenHash = this.hashToken(rawRefreshToken);
+
+        await this.prisma.refreshToken.create({
+            data: {
+                userId,
+                tokenHash,
+                family,
+                expiresAt: this.refreshExpiryDate(),
+            },
+        });
+
+        return { accessToken, refreshToken: rawRefreshToken };
+    }
+
+    private hashToken(raw: string): string {
+        return createHash('sha256').update(raw).digest('hex');
+    }
+
+    private refreshExpiryDate(): Date {
+        const d = new Date();
+        d.setDate(d.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+        return d;
+    }
+
+    private async revokeFamily(family: string): Promise<void> {
+        await this.prisma.refreshToken.updateMany({
+            where: { family, revokedAt: null },
+            data: { revokedAt: new Date() },
+        });
+    }
+}

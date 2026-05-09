@@ -42,10 +42,26 @@ model User {
 
   enrollments Enrollment[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  RefreshToken RefreshToken[]
 
   @@index([advisorId])
+}
+
+model RefreshToken {
+  id           String    @id @default(uuid())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String    @db.Uuid
+  tokenHash    String    @unique
+  family       String
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?   @db.Uuid
+
+  @@index([family])
+  @@index([userId])
 }
 
 model Term {
@@ -71,10 +87,17 @@ model Course {
 
   sections Section[]
 
-  // Generated FTS column maintained by Postgres. Declared here so
-  // `prisma migrate dev` does not detect drift; Unsupported types are
-  // automatically excluded from the generated client, so raw queries
-  // reach this column via $queryRaw.
+  // Generated FTS column maintained by Postgres (see migration
+  // 20260428070000_add_course_fts: GENERATED ALWAYS AS ... STORED).
+  // Prisma cannot model generated columns, so every `migrate dev` that
+  // diffs Course will emit two bogus lines:
+  //   DROP INDEX "Course_searchVector_idx";
+  //   ALTER TABLE "Course" ALTER COLUMN "searchVector" DROP DEFAULT;
+  // The DROP DEFAULT will fail at apply time (Postgres needs DROP
+  // EXPRESSION on generated columns). Workflow: run `migrate dev
+  // --create-only`, delete those two lines from the generated SQL,
+  // then `migrate deploy`. Unsupported types are excluded from the
+  // generated client, so raw queries reach this column via $queryRaw.
   searchVector Unsupported("tsvector")?
 
   createdAt DateTime @default(now())
@@ -141,10 +164,10 @@ model Enrollment {
 model AuditOutbox {
   id BigInt @id @default(autoincrement())
 
-  action          String
-  actorUserId     String? @db.Uuid
-  actorIp         String?
-  actorUserAgent  String?
+  action         String
+  actorUserId    String? @db.Uuid
+  actorIp        String?
+  actorUserAgent String?
 
   targetType String
   targetId   String

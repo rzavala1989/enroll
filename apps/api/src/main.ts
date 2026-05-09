@@ -2,6 +2,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
+
 
 import { AppModule } from './app.module';
 
@@ -11,6 +13,8 @@ async function bootstrap() {
   // Mount every controller under /api so the Angular dev proxy can
   // forward /api/* directly without rewrites.
   app.setGlobalPrefix('api');
+
+  app.use(cookieParser());
 
   app.enableCors({
     origin: 'http://localhost:4200',
