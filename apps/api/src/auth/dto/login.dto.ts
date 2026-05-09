@@ -6,9 +6,9 @@ export class LoginDto {
         { allow_display_name: false, require_tld: true },
         { message: 'Valid email required' }
     )
-    email: string | undefined;
+    email!: string;
 
     @IsString({ message: 'Password must be a string' })
     @MinLength(8, { message: 'Password must be at least 8 characters' })
-    password: string | undefined;
+    password!: string;
 }

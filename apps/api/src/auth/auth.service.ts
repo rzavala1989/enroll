@@ -10,7 +10,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { LoginDto } from './dto/login.dto';
 
 // ── Token config ──────────────────────────────────────
-const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY_DAYS = 7;
 
 // ── Types ─────────────────────────────────────────────
@@ -110,10 +109,7 @@ export class AuthService {
         family: string,
     ): Promise<TokenPair> {
         const jti = uuidv4();
-        const accessToken = this.jwt.sign(
-            { sub: userId, roles, jti },
-            { expiresIn: ACCESS_TOKEN_EXPIRY },
-        );
+        const accessToken = await this.jwt.signAsync({ sub: userId, roles, jti });
 
         const rawRefreshToken = randomBytes(32).toString('hex');
         const tokenHash = this.hashToken(rawRefreshToken);

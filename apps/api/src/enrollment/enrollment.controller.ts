@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -20,6 +21,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DropDto, EnrollDto, EnrollFailureDto, EnrollmentResultDto } from './dto/enroll.dto';
 import { EnrollmentService, RequestActor } from './enrollment.service';
 
@@ -31,6 +33,7 @@ function actorFrom(req: Request): RequestActor {
 }
 
 @ApiTags('enrollment')
+@UseGuards(JwtAuthGuard)
 @Controller('enrollments')
 export class EnrollmentController {
   constructor(private readonly enrollmentService: EnrollmentService) {}
