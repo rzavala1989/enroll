@@ -16,17 +16,9 @@ export class EnrollDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()
   sectionId!: string;
-
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
-  studentId!: string;
 }
 
-export class DropDto {
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
-  studentId!: string;
-}
+export class DropDto {}
 
 export class EnrollmentResultDto {
   @ApiProperty({ format: 'uuid' })

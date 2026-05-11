@@ -1,11 +1,43 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
-import { Observable } from 'rxjs';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Request } from 'express';
+
+import { PrismaService } from '../../prisma/prisma.service';
+import { JwtPayload } from '../types/jwt-payload.interface';
+
+const ADMIN_ROLE = 'ADMIN';
 
 @Injectable()
 export class EnrollmentOwnershipGuard implements CanActivate {
-  canActivate(
-    context: ExecutionContext,
-  ): boolean | Promise<boolean> | Observable<boolean> {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<Request>();
+    const user = (request as Request & { user?: JwtPayload }).user;
+    if (!user) throw new UnauthorizedException();
+
+    // Admins bypass ownership.
+    if (user.roles?.includes(ADMIN_ROLE)) return true;
+
+    const rawId = request.params?.id;
+    const enrollmentId = typeof rawId === 'string' ? rawId : undefined;
+    if (!enrollmentId) throw new NotFoundException('Enrollment not found.');
+
+    const enrollment = await this.prisma.enrollment.findUnique({
+      where: { id: enrollmentId },
+      select: { studentId: true },
+    });
+    if (!enrollment) throw new NotFoundException('Enrollment not found.');
+
+    if (enrollment.studentId !== user.sub) {
+      throw new ForbiddenException();
+    }
     return true;
   }
 }

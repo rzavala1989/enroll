@@ -10,9 +10,10 @@ import { AuditAction } from '@enroll/shared';
 
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { DropDto, EnrollDto, EnrollmentResultDto } from './dto/enroll.dto';
+import { EnrollDto, EnrollmentResultDto } from './dto/enroll.dto';
 
 export interface RequestActor {
+  userId: string;
   ipAddress: string | null;
   userAgent: string | null;
 }
@@ -50,6 +51,7 @@ export class EnrollmentService {
    */
   async enroll(
     input: EnrollDto,
+    userId: string,
     actor: RequestActor,
   ): Promise<EnrollmentResultDto> {
     return this.prisma.$transaction(async (tx) => {
@@ -88,7 +90,7 @@ export class EnrollmentService {
 
       // 2. Verify the student exists.
       const student = await tx.user.findUnique({
-        where: { id: input.studentId },
+        where: { id: userId },
         select: { id: true },
       });
       if (!student) {
@@ -132,7 +134,7 @@ export class EnrollmentService {
       //    error code without forcing the caller to parse Prisma errors.
       const existing = await tx.enrollment.findFirst({
         where: {
-          studentId: input.studentId,
+          studentId: userId,
           sectionId: input.sectionId,
           status: EnrollmentStatus.ENROLLED,
         },
@@ -148,7 +150,7 @@ export class EnrollmentService {
       // 5. Insert + counter bump in the same transaction.
       const enrollment = await tx.enrollment.create({
         data: {
-          studentId: input.studentId,
+          studentId: userId,
           sectionId: input.sectionId,
           status: EnrollmentStatus.ENROLLED,
         },
@@ -170,7 +172,7 @@ export class EnrollmentService {
       await this.audit.recordEvent(tx, {
         action: AuditAction.ENROLLMENT_CREATED,
         actor: {
-          userId: input.studentId,
+          userId: userId,
           ipAddress: actor.ipAddress,
           userAgent: actor.userAgent,
         },
@@ -205,7 +207,7 @@ export class EnrollmentService {
    */
   async drop(
     enrollmentId: string,
-    input: DropDto,
+    userId: string,
     actor: RequestActor,
   ): Promise<EnrollmentResultDto> {
     return this.prisma.$transaction(async (tx) => {
@@ -220,14 +222,6 @@ export class EnrollmentService {
       });
       if (!enrollment) {
         throw new NotFoundException('Enrollment not found.');
-      }
-      if (enrollment.studentId !== input.studentId) {
-        // Phase 2 will replace this with a proper ABAC guard. For now
-        // it's a server-side sanity check so a buggy client cannot drop
-        // someone else's row.
-        throw new BadRequestException(
-          'Enrollment does not belong to this student.',
-        );
       }
       if (enrollment.status !== EnrollmentStatus.ENROLLED) {
         throw new BadRequestException(
@@ -267,7 +261,7 @@ export class EnrollmentService {
       await this.audit.recordEvent(tx, {
         action: AuditAction.ENROLLMENT_DROPPED,
         actor: {
-          userId: input.studentId,
+          userId: userId,
           ipAddress: actor.ipAddress,
           userAgent: actor.userAgent,
         },

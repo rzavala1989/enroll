@@ -2,6 +2,7 @@ import {
     Injectable,
     UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { randomBytes, createHash } from 'crypto';
@@ -9,27 +10,41 @@ import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { LoginDto } from './dto/login.dto';
 
-// ── Token config ──────────────────────────────────────
-const REFRESH_TOKEN_EXPIRY_DAYS = 7;
-
 // ── Types ─────────────────────────────────────────────
 interface TokenPair {
     accessToken: string;
     refreshToken: string;
 }
 
-interface JwtPayload {
-    sub: string;
-    roles: string[];
-    jti: string;
+// Parses durations like "7d", "15m", "30s", "100ms" into milliseconds.
+function parseDuration(value: string): number {
+    const match = value.trim().match(/^(\d+)(ms|s|m|h|d)$/);
+    if (!match) throw new Error(`Invalid duration: ${value}`);
+    const n = Number(match[1]);
+    const unit = match[2];
+    const multipliers: Record<string, number> = {
+        ms: 1,
+        s: 1000,
+        m: 60_000,
+        h: 3_600_000,
+        d: 86_400_000,
+    };
+    return n * multipliers[unit];
 }
 
 @Injectable()
 export class AuthService {
+    private readonly refreshExpiryMs: number;
+
     constructor(
         private readonly jwt: JwtService,
         private readonly prisma: PrismaService,
-    ) {}
+        private readonly config: ConfigService,
+    ) {
+        this.refreshExpiryMs = parseDuration(
+            this.config.getOrThrow<string>('JWT_REFRESH_EXPIRY'),
+        );
+    }
 
     // ── Login ───────────────────────────────────────────
     async login(dto: LoginDto): Promise<TokenPair> {
@@ -131,9 +146,7 @@ export class AuthService {
     }
 
     private refreshExpiryDate(): Date {
-        const d = new Date();
-        d.setDate(d.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
-        return d;
+        return new Date(Date.now() + this.refreshExpiryMs);
     }
 
     private async revokeFamily(family: string): Promise<void> {
