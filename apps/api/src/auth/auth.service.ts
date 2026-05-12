@@ -9,27 +9,12 @@ import { randomBytes, createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { LoginDto } from './dto/login.dto';
+import { parseDuration } from './util/parse-duration';
 
 // ── Types ─────────────────────────────────────────────
 interface TokenPair {
     accessToken: string;
     refreshToken: string;
-}
-
-// Parses durations like "7d", "15m", "30s", "100ms" into milliseconds.
-function parseDuration(value: string): number {
-    const match = value.trim().match(/^(\d+)(ms|s|m|h|d)$/);
-    if (!match) throw new Error(`Invalid duration: ${value}`);
-    const n = Number(match[1]);
-    const unit = match[2];
-    const multipliers: Record<string, number> = {
-        ms: 1,
-        s: 1000,
-        m: 60_000,
-        h: 3_600_000,
-        d: 86_400_000,
-    };
-    return n * multipliers[unit];
 }
 
 @Injectable()

@@ -4,22 +4,43 @@ import {
     Post,
     Res,
     HttpCode,
-    UseGuards, Req, UnauthorizedException,
+    Req, UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { parseDuration } from './util/parse-duration';
 
-const COOKIE_OPTS = {
+const BASE_COOKIE_OPTS = {
     httpOnly: true,
     sameSite: 'strict' as const,
-    secure: process.env.NODE_ENV === 'production',
     path: '/',
 };
 
+type CookieOpts = typeof BASE_COOKIE_OPTS & { secure: boolean };
+
 @Controller('auth')
 export class AuthController {
-    constructor(private readonly auth: AuthService) {}
+    private readonly cookieOpts: CookieOpts;
+    private readonly accessCookieMaxAge: number;
+    private readonly refreshCookieMaxAge: number;
+
+    constructor(
+        private readonly auth: AuthService,
+        config: ConfigService,
+    ) {
+        this.cookieOpts = {
+            ...BASE_COOKIE_OPTS,
+            secure: config.get<string>('NODE_ENV') === 'production',
+        };
+        this.accessCookieMaxAge = parseDuration(
+            config.getOrThrow<string>('JWT_ACCESS_EXPIRY'),
+        );
+        this.refreshCookieMaxAge = parseDuration(
+            config.getOrThrow<string>('JWT_REFRESH_EXPIRY'),
+        );
+    }
 
     @Post('login')
     @HttpCode(200)
@@ -55,8 +76,8 @@ export class AuthController {
         const rawToken = req.cookies?.refresh_token;
         if (rawToken) await this.auth.logout(rawToken);
 
-        res.clearCookie('access_token', COOKIE_OPTS);
-        res.clearCookie('refresh_token', COOKIE_OPTS);
+        res.clearCookie('access_token', this.cookieOpts);
+        res.clearCookie('refresh_token', this.cookieOpts);
         return { message: 'Logged out' };
     }
 
@@ -65,12 +86,12 @@ export class AuthController {
         tokens: { accessToken: string; refreshToken: string },
     ) {
         res.cookie('access_token', tokens.accessToken, {
-            ...COOKIE_OPTS,
-            maxAge: 15 * 60 * 1000, // 15 minutes
+            ...this.cookieOpts,
+            maxAge: this.accessCookieMaxAge,
         });
         res.cookie('refresh_token', tokens.refreshToken, {
-            ...COOKIE_OPTS,
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            ...this.cookieOpts,
+            maxAge: this.refreshCookieMaxAge,
         });
     }
 }
