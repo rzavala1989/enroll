@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { EnrollmentStatus, Prisma } from '@prisma/client';
+import { EnrollmentStatus } from '@prisma/client';
 import { AuditAction } from '@enroll/shared';
 
 import { AuditService } from '../audit/audit.service';
@@ -34,16 +34,18 @@ export class EnrollmentService {
    *
    * The contract:
    *   1. Verify the term's registration window is open.
-   *   2. Take a row-level lock on the Section via SELECT ... FOR UPDATE
+   *   2. Reject if the student already has an ENROLLED or WAITLISTED row
+   *      for this section.
+   *   3. Take a row-level lock on the Section via SELECT ... FOR UPDATE
    *      so that two concurrent transactions cannot both read the same
    *      enrolledCount and both pass the capacity check.
-   *   3. Re-read enrolledCount under the lock, compare to capacity.
-   *   4. INSERT the Enrollment row and bump the denormalized counter.
-   *      The Postgres CHECK constraint backstops the application check;
-   *      the partial unique index backstops "no duplicate ENROLLED row
-   *      per (student, section)" if two requests slip past the lock
-   *      (they shouldn't, but defense in depth).
-   *   5. Commit.
+   *   4. Under the lock: if a seat is free, INSERT an ENROLLED row and
+   *      bump the denormalized counter; otherwise INSERT a WAITLISTED row
+   *      at the next sparse waitlist position. The partial unique index
+   *      (studentId, sectionId) WHERE status IN ('ENROLLED','WAITLISTED')
+   *      backstops step 2 if two requests slip past the lock.
+   *   5. Commit. A drop later frees a seat and enqueues a promotion sweep
+   *      (see WaitlistService).
    *
    * Why pessimistic and not optimistic? Registration day is a known
    * high-contention event by design. Optimistic locking (version column,
