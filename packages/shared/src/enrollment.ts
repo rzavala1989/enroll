@@ -38,6 +38,7 @@ export interface EnrollmentResult {
 export type EnrollFailureCode =
   | 'SECTION_FULL'
   | 'ALREADY_ENROLLED'
+  | 'ALREADY_WAITLISTED'
   | 'REGISTRATION_CLOSED'
   | 'SECTION_NOT_FOUND'
   | 'STUDENT_NOT_FOUND';

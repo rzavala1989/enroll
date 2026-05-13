@@ -3,6 +3,9 @@ import { Role } from './enums';
 export enum AuditAction {
   ENROLLMENT_CREATED = 'ENROLLMENT_CREATED',
   ENROLLMENT_DROPPED = 'ENROLLMENT_DROPPED',
+  ENROLLMENT_WAITLISTED = 'ENROLLMENT_WAITLISTED',
+  ENROLLMENT_WAITLIST_LEFT = 'ENROLLMENT_WAITLIST_LEFT',
+  ENROLLMENT_PROMOTED = 'ENROLLMENT_PROMOTED',
 }
 
 export type AuditTargetType = 'enrollment' | 'section' | 'course' | 'user' | 'auth';
