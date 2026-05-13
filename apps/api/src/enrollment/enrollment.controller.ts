@@ -50,7 +50,7 @@ export class EnrollmentController {
   @ApiOperation({
     summary: 'Enroll the current student in a section',
     description:
-      'Atomic enroll under a row-level Section lock. Returns 409 SECTION_FULL or ALREADY_ENROLLED, 400 REGISTRATION_CLOSED, 404 SECTION_NOT_FOUND or STUDENT_NOT_FOUND.',
+      'Atomic enroll under a row-level Section lock. A full section returns 201 with status WAITLISTED and the student\'s waitlist position. Returns 409 ALREADY_ENROLLED or ALREADY_WAITLISTED, 400 REGISTRATION_CLOSED, 404 SECTION_NOT_FOUND or STUDENT_NOT_FOUND.',
   })
   @ApiCreatedResponse({ type: EnrollmentResultDto })
   @ApiConflictResponse({ type: EnrollFailureDto })
