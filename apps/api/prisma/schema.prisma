@@ -141,6 +141,10 @@ model Enrollment {
 
   status EnrollmentStatus @default(ENROLLED)
 
+  /// Sparse per-section waitlist sequence value; non-null only while status = WAITLISTED.
+  /// Never renumbered, just freed (set null) on promotion or drop. Display rank is computed on read.
+  waitlistPosition Int?
+
   enrolledAt  DateTime  @default(now())
   droppedAt   DateTime?
   completedAt DateTime?
@@ -148,13 +152,10 @@ model Enrollment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // TODO: a student can only have one ACTIVE enrollment per section, but they
-  // could drop and re-enroll. Enforce via partial unique index in a follow-up
-  // migration (raw SQL: UNIQUE (studentId, sectionId) WHERE status = 'ENROLLED')
-  // plus an application-level check before insert.
   @@index([studentId])
   @@index([sectionId])
   @@index([status])
+  @@index([sectionId, waitlistPosition])
 }
 
 // Phase 5 audit outbox. Rows are written inside the same Postgres
