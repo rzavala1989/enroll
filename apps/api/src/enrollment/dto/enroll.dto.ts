@@ -36,6 +36,12 @@ export class EnrollmentResultDto {
   @ApiProperty()
   enrolledAt!: string;
 
+  @ApiProperty({
+    required: false,
+    description: '1-based position on the section waitlist; absent unless status is WAITLISTED.',
+  })
+  waitlistPosition?: number;
+
   @ApiProperty()
   sectionEnrolledCount!: number;
 
@@ -48,6 +54,7 @@ export class EnrollFailureDto {
     enum: [
       'SECTION_FULL',
       'ALREADY_ENROLLED',
+      'ALREADY_WAITLISTED',
       'REGISTRATION_CLOSED',
       'SECTION_NOT_FOUND',
       'STUDENT_NOT_FOUND',
