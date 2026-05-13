@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -79,5 +80,16 @@ export class EnrollmentController {
       userId: user.sub,
       ...actorFrom(req),
     });
+  }
+
+  @Get(':id')
+  @Roles('STUDENT', 'ADVISOR', 'ADMIN')
+  @UseGuards(EnrollmentOwnershipGuard)
+  @ApiOperation({ summary: 'Get an enrollment, including waitlist position' })
+  @ApiOkResponse({ type: EnrollmentResultDto })
+  getOne(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<EnrollmentResultDto> {
+    return this.enrollmentService.findOne(id);
   }
 }

@@ -11,7 +11,7 @@ import { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtPayload } from '../types/jwt-payload.interface';
 
-const ADMIN_ROLE = 'ADMIN';
+const BYPASS_ROLES = ['ADMIN', 'ADVISOR'];
 
 @Injectable()
 export class EnrollmentOwnershipGuard implements CanActivate {
@@ -22,8 +22,8 @@ export class EnrollmentOwnershipGuard implements CanActivate {
     const user = (request as Request & { user?: JwtPayload }).user;
     if (!user) throw new UnauthorizedException();
 
-    // Admins bypass ownership.
-    if (user.roles?.includes(ADMIN_ROLE)) return true;
+    // Admins and advisors bypass ownership (read any enrollment).
+    if (user.roles?.some((r) => BYPASS_ROLES.includes(r))) return true;
 
     const rawId = request.params?.id;
     const enrollmentId = typeof rawId === 'string' ? rawId : undefined;

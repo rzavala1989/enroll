@@ -310,4 +310,36 @@ export class EnrollmentService {
     }
     return result;
   }
+
+  async findOne(enrollmentId: string): Promise<EnrollmentResultDto> {
+    const e = await this.prisma.enrollment.findUnique({
+      where: { id: enrollmentId },
+      select: {
+        id: true,
+        studentId: true,
+        sectionId: true,
+        status: true,
+        enrolledAt: true,
+        waitlistPosition: true,
+        section: { select: { capacity: true, enrolledCount: true } },
+      },
+    });
+    if (!e) throw new NotFoundException('Enrollment not found.');
+
+    let waitlistPosition: number | undefined;
+    if (e.status === EnrollmentStatus.WAITLISTED && e.waitlistPosition != null) {
+      waitlistPosition = await this.waitlist.computeRank(this.prisma, e.sectionId, e.waitlistPosition);
+    }
+
+    return {
+      id: e.id,
+      studentId: e.studentId,
+      sectionId: e.sectionId,
+      status: e.status,
+      enrolledAt: e.enrolledAt.toISOString(),
+      sectionEnrolledCount: e.section.enrolledCount,
+      sectionCapacity: e.section.capacity,
+      waitlistPosition,
+    };
+  }
 }
