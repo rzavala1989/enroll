@@ -357,10 +357,7 @@ async function main(): Promise<void> {
         : faker.number.int({ min: 1, max: 2 });
 
     for (let s = 1; s <= numSections; s++) {
-      const capacity = faker.number.int({
-        min: course.level <= 200 ? 60 : 20,
-        max: course.level <= 200 ? 150 : 60,
-      });
+      const capacity = faker.number.int({ min: 20, max: 30 });
       const enrolledCount = faker.number.int({
         min: 0,
         max: Math.floor(capacity * 0.9),
