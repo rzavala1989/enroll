@@ -226,82 +226,88 @@ export class EnrollmentService {
     userId: string,
     actor: RequestActor,
   ): Promise<EnrollmentResultDto> {
-    return this.prisma.$transaction(async (tx) => {
+    const { result, freedSeatSectionId } = await this.prisma.$transaction(async (tx) => {
       const enrollment = await tx.enrollment.findUnique({
         where: { id: enrollmentId },
-        select: {
-          id: true,
-          studentId: true,
-          sectionId: true,
-          status: true,
-        },
+        select: { id: true, studentId: true, sectionId: true, status: true, waitlistPosition: true },
       });
       if (!enrollment) {
         throw new NotFoundException('Enrollment not found.');
       }
+
+      // Leaving the waitlist: no counter change, no seat freed, no job.
+      if (enrollment.status === EnrollmentStatus.WAITLISTED) {
+        await tx.$queryRaw`
+          SELECT id FROM "Section" WHERE id = ${enrollment.sectionId}::uuid FOR UPDATE
+        `;
+        const left = await tx.enrollment.update({
+          where: { id: enrollment.id },
+          data: { status: EnrollmentStatus.DROPPED, droppedAt: new Date(), waitlistPosition: null },
+          select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true },
+        });
+        const section = await tx.section.findUnique({
+          where: { id: enrollment.sectionId },
+          select: { capacity: true, enrolledCount: true },
+        });
+        await this.audit.recordEvent(tx, {
+          action: AuditAction.ENROLLMENT_WAITLIST_LEFT,
+          actor: { userId: actor.userId, ipAddress: actor.ipAddress, userAgent: actor.userAgent },
+          target: { type: 'enrollment', id: left.id },
+          before: { status: EnrollmentStatus.WAITLISTED, waitlistPosition: enrollment.waitlistPosition },
+          after: { status: EnrollmentStatus.DROPPED },
+        });
+        return {
+          result: {
+            ...left,
+            enrolledAt: left.enrolledAt.toISOString(),
+            sectionEnrolledCount: section?.enrolledCount ?? 0,
+            sectionCapacity: section?.capacity ?? 0,
+          } as EnrollmentResultDto,
+          freedSeatSectionId: null as string | null,
+        };
+      }
+
       if (enrollment.status !== EnrollmentStatus.ENROLLED) {
         throw new BadRequestException(
           `Cannot drop an enrollment in status ${enrollment.status}.`,
         );
       }
 
-      // Lock the section row so the counter decrement serializes
-      // against any concurrent enroll on the same section.
+      // Dropping an enrolled student frees a seat.
       await tx.$queryRaw`
-        SELECT id FROM "Section"
-        WHERE id = ${enrollment.sectionId}::uuid
-        FOR UPDATE
+        SELECT id FROM "Section" WHERE id = ${enrollment.sectionId}::uuid FOR UPDATE
       `;
-
       const dropped = await tx.enrollment.update({
         where: { id: enrollment.id },
-        data: {
-          status: EnrollmentStatus.DROPPED,
-          droppedAt: new Date(),
-        },
-        select: {
-          id: true,
-          studentId: true,
-          sectionId: true,
-          status: true,
-          enrolledAt: true,
-        },
+        data: { status: EnrollmentStatus.DROPPED, droppedAt: new Date() },
+        select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true },
       });
-
       const updatedSection = await tx.section.update({
         where: { id: enrollment.sectionId },
         data: { enrolledCount: { decrement: 1 } },
         select: { capacity: true, enrolledCount: true },
       });
-
       await this.audit.recordEvent(tx, {
         action: AuditAction.ENROLLMENT_DROPPED,
-        actor: {
-          userId: userId,
-          ipAddress: actor.ipAddress,
-          userAgent: actor.userAgent,
-        },
+        actor: { userId: actor.userId, ipAddress: actor.ipAddress, userAgent: actor.userAgent },
         target: { type: 'enrollment', id: dropped.id },
-        before: {
-          sectionId: dropped.sectionId,
-          status: enrollment.status,
-        },
-        after: {
-          sectionId: dropped.sectionId,
-          status: dropped.status,
-        },
+        before: { sectionId: dropped.sectionId, status: enrollment.status },
+        after: { sectionId: dropped.sectionId, status: dropped.status },
       });
-
       return {
-        ...dropped,
-        enrolledAt: dropped.enrolledAt.toISOString(),
-        sectionEnrolledCount: updatedSection.enrolledCount,
-        sectionCapacity: updatedSection.capacity,
+        result: {
+          ...dropped,
+          enrolledAt: dropped.enrolledAt.toISOString(),
+          sectionEnrolledCount: updatedSection.enrolledCount,
+          sectionCapacity: updatedSection.capacity,
+        } as EnrollmentResultDto,
+        freedSeatSectionId: enrollment.sectionId as string | null,
       };
     });
+
+    if (freedSeatSectionId) {
+      await this.waitlist.enqueuePromotion(freedSeatSectionId);
+    }
+    return result;
   }
 }
-
-// TODO(phase 6): when SECTION_FULL fires, instead of rejecting outright,
-// create a WAITLISTED enrollment row and enqueue a BullMQ job for the
-// next-in-line promotion when a seat opens (drop or admin override).
