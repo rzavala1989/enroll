@@ -10,6 +10,7 @@ import { AuditAction } from '@enroll/shared';
 
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 import { EnrollDto, EnrollmentResultDto } from './dto/enroll.dto';
 
 export interface RequestActor {
@@ -25,6 +26,7 @@ export class EnrollmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly waitlist: WaitlistService,
   ) {}
 
   /**
@@ -121,74 +123,88 @@ export class EnrollmentService {
         });
       }
 
-      if (live.enrolledCount >= live.capacity) {
-        throw new ConflictException({
-          code: 'SECTION_FULL',
-          message: 'Section is at capacity.',
-        });
-      }
-
-      // 4. Re-check ALREADY_ENROLLED inside the lock so the user-
-      //    facing error is the right one. The unique index would also
-      //    catch this (P2002), but a clean check returns a better
-      //    error code without forcing the caller to parse Prisma errors.
-      const existing = await tx.enrollment.findFirst({
+      // Active-row check: a student is enrolled, waitlisted, or neither for a section.
+      const active = await tx.enrollment.findFirst({
         where: {
           studentId: userId,
           sectionId: input.sectionId,
-          status: EnrollmentStatus.ENROLLED,
+          status: { in: [EnrollmentStatus.ENROLLED, EnrollmentStatus.WAITLISTED] },
         },
-        select: { id: true },
+        select: { status: true },
       });
-      if (existing) {
+      if (active?.status === EnrollmentStatus.ENROLLED) {
         throw new ConflictException({
           code: 'ALREADY_ENROLLED',
           message: 'Student is already enrolled in this section.',
         });
       }
+      if (active?.status === EnrollmentStatus.WAITLISTED) {
+        throw new ConflictException({
+          code: 'ALREADY_WAITLISTED',
+          message: 'Student is already on the waitlist for this section.',
+        });
+      }
 
-      // 5. Insert + counter bump in the same transaction.
+      // Seat available means enroll. Otherwise, waitlist.
+      if (live.enrolledCount < live.capacity) {
+        const enrollment = await tx.enrollment.create({
+          data: {
+            studentId: userId,
+            sectionId: input.sectionId,
+            status: EnrollmentStatus.ENROLLED,
+          },
+          select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true },
+        });
+
+        const updated = await tx.section.update({
+          where: { id: input.sectionId },
+          data: { enrolledCount: { increment: 1 } },
+          select: { capacity: true, enrolledCount: true },
+        });
+
+        await this.audit.recordEvent(tx, {
+          action: AuditAction.ENROLLMENT_CREATED,
+          actor: { userId, ipAddress: actor.ipAddress, userAgent: actor.userAgent },
+          target: { type: 'enrollment', id: enrollment.id },
+          before: null,
+          after: { sectionId: enrollment.sectionId, status: enrollment.status },
+        });
+
+        return {
+          ...enrollment,
+          enrolledAt: enrollment.enrolledAt.toISOString(),
+          sectionEnrolledCount: updated.enrolledCount,
+          sectionCapacity: updated.capacity,
+        };
+      }
+
+      // Section full: create a WAITLISTED row at the next sparse position.
+      const position = await this.waitlist.assignPosition(tx, input.sectionId);
       const enrollment = await tx.enrollment.create({
         data: {
           studentId: userId,
           sectionId: input.sectionId,
-          status: EnrollmentStatus.ENROLLED,
+          status: EnrollmentStatus.WAITLISTED,
+          waitlistPosition: position,
         },
-        select: {
-          id: true,
-          studentId: true,
-          sectionId: true,
-          status: true,
-          enrolledAt: true,
-        },
+        select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true },
       });
-
-      const updated = await tx.section.update({
-        where: { id: input.sectionId },
-        data: { enrolledCount: { increment: 1 } },
-        select: { capacity: true, enrolledCount: true },
-      });
+      const rank = await this.waitlist.computeRank(tx, input.sectionId, position);
 
       await this.audit.recordEvent(tx, {
-        action: AuditAction.ENROLLMENT_CREATED,
-        actor: {
-          userId: userId,
-          ipAddress: actor.ipAddress,
-          userAgent: actor.userAgent,
-        },
+        action: AuditAction.ENROLLMENT_WAITLISTED,
+        actor: { userId, ipAddress: actor.ipAddress, userAgent: actor.userAgent },
         target: { type: 'enrollment', id: enrollment.id },
         before: null,
-        after: {
-          sectionId: enrollment.sectionId,
-          status: enrollment.status,
-        },
+        after: { sectionId: enrollment.sectionId, status: enrollment.status, waitlistPosition: position },
       });
 
       return {
         ...enrollment,
         enrolledAt: enrollment.enrolledAt.toISOString(),
-        sectionEnrolledCount: updated.enrolledCount,
-        sectionCapacity: updated.capacity,
+        sectionEnrolledCount: live.enrolledCount,
+        sectionCapacity: live.capacity,
+        waitlistPosition: rank,
       };
     });
   }
