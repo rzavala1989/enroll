@@ -12,6 +12,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import { EnrollDto, EnrollmentResultDto } from './dto/enroll.dto';
+import { MyEnrollmentDto } from './dto/my-enrollment.dto';
 
 export interface RequestActor {
   userId: string;
@@ -311,6 +312,51 @@ export class EnrollmentService {
       await this.waitlist.enqueuePromotion(freedSeatSectionId);
     }
     return result;
+  }
+
+  async listMine(studentId: string): Promise<MyEnrollmentDto[]> {
+    const rows = await this.prisma.enrollment.findMany({
+      where: { studentId },
+      orderBy: { enrolledAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        enrolledAt: true,
+        waitlistPosition: true,
+        section: {
+          select: {
+            id: true,
+            sectionNumber: true,
+            instructorName: true,
+            meetingPattern: true,
+            room: true,
+            course: { select: { id: true, code: true, title: true, credits: true } },
+          },
+        },
+      },
+    });
+
+    return Promise.all(
+      rows.map(async (row) => {
+        let waitlistPosition: number | undefined;
+        if (row.status === EnrollmentStatus.WAITLISTED && row.waitlistPosition != null) {
+          waitlistPosition = await this.waitlist.computeRank(
+            this.prisma,
+            row.section.id,
+            row.waitlistPosition,
+          );
+        }
+        const { course, ...section } = row.section;
+        return {
+          id: row.id,
+          status: row.status,
+          enrolledAt: row.enrolledAt.toISOString(),
+          waitlistPosition,
+          section,
+          course,
+        };
+      }),
+    );
   }
 
   async findOne(enrollmentId: string): Promise<EnrollmentResultDto> {

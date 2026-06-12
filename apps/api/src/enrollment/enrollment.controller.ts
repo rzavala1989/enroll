@@ -29,6 +29,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { JwtPayload } from '../auth/types/jwt-payload.interface';
 import { EnrollDto, EnrollFailureDto, EnrollmentResultDto } from './dto/enroll.dto';
+import { MyEnrollmentDto } from './dto/my-enrollment.dto';
 import { EnrollmentService, RequestActor } from './enrollment.service';
 
 function actorFrom(req: Request): Pick<RequestActor, 'ipAddress' | 'userAgent'> {
@@ -44,6 +45,17 @@ function actorFrom(req: Request): Pick<RequestActor, 'ipAddress' | 'userAgent'> 
 @Controller('enrollments')
 export class EnrollmentController {
   constructor(private readonly enrollmentService: EnrollmentService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: "List the current student's enrollments, newest first",
+    description:
+      'Includes every status: active rows (ENROLLED, WAITLISTED) and past rows (DROPPED, COMPLETED). The web app splits them client-side.',
+  })
+  @ApiOkResponse({ type: MyEnrollmentDto, isArray: true })
+  listMine(@CurrentUser() user: JwtPayload): Promise<MyEnrollmentDto[]> {
+    return this.enrollmentService.listMine(user.sub);
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
