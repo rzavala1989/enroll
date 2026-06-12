@@ -9,6 +9,7 @@ import { randomBytes, createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { LoginDto } from './dto/login.dto';
+import { MeResponseDto } from './dto/me.dto';
 import { parseDuration } from './util/parse-duration';
 
 // ── Types ─────────────────────────────────────────────
@@ -99,6 +100,17 @@ export class AuthService {
             where: { tokenHash, revokedAt: null },
             data: { revokedAt: new Date() },
         });
+    }
+
+    // ── Me ──────────────────────────────────────────────
+    async me(userId: string): Promise<MeResponseDto> {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, email: true, firstName: true, lastName: true, roles: true },
+        });
+        // A valid JWT for a deleted user: treat as logged out.
+        if (!user) throw new UnauthorizedException();
+        return user;
     }
 
     // ── Private helpers ─────────────────────────────────
