@@ -24,6 +24,8 @@ export interface EnrollmentResult {
   sectionId: string;
   status: EnrollmentStatus;
   enrolledAt: string;
+  /** 1-based waitlist position; present only when status is WAITLISTED. */
+  waitlistPosition?: number;
   /** Latest enrolledCount on the section after the write succeeded. */
   sectionEnrolledCount: number;
   /** Section capacity (for UX hints). */
@@ -46,4 +48,32 @@ export type EnrollFailureCode =
 export interface EnrollFailure {
   code: EnrollFailureCode;
   message: string;
+}
+
+/** Section summary nested in a MyEnrollment row. */
+export interface MyEnrollmentSection {
+  id: string;
+  sectionNumber: string;
+  instructorName: string;
+  meetingPattern: string;
+  room: string;
+}
+
+/** Course summary nested in a MyEnrollment row. */
+export interface MyEnrollmentCourse {
+  id: string;
+  code: string;
+  title: string;
+  credits: number;
+}
+
+/** Row in GET /api/enrollments (the current student's enrollments). */
+export interface MyEnrollment {
+  id: string;
+  status: EnrollmentStatus;
+  enrolledAt: string;
+  /** 1-based waitlist position; present only when status is WAITLISTED. */
+  waitlistPosition?: number;
+  section: MyEnrollmentSection;
+  course: MyEnrollmentCourse;
 }
