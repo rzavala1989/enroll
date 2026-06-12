@@ -5,6 +5,7 @@
   "description": "Course registration system for the UCR Senior Developer interview prep",
   "scripts": {
     "dev:api": "pnpm --filter api start:dev",
+    "dev:web": "pnpm --filter web dev",
     "db:migrate": "pnpm --filter api prisma migrate dev",
     "db:studio": "pnpm --filter api prisma studio",
     "db:generate": "pnpm --filter api prisma generate",
