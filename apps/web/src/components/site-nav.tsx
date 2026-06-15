@@ -31,8 +31,12 @@ export function SiteNav({ identity }: { identity: AuthUser | null }) {
 
   async function signOut() {
     setSigningOut(true);
-    await fetch('/api/auth/logout', { method: 'POST' });
-    window.location.assign('/login');
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      // Navigate to /login regardless: a failed request shouldn't strand the button.
+      window.location.assign('/login');
+    }
   }
 
   const isStudent = identity?.roles.includes(Role.STUDENT) ?? false;

@@ -5,9 +5,18 @@ import { LoginForm } from './login-form';
 export const metadata: Metadata = { title: 'Sign in' };
 
 function sanitizeNext(next: string | undefined): string {
-  // Internal paths only: no protocol-relative or absolute URLs.
-  if (next && next.startsWith('/') && !next.startsWith('//')) return next;
-  return '/catalog';
+  if (!next) return '/catalog';
+  // Resolve against a sentinel origin so backslash and control-char tricks
+  // (/\evil.com, /<tab>/evil.com) that the URL parser rewrites to an absolute
+  // URL get caught by the origin check instead of slipping past startsWith('/').
+  const base = 'https://internal.invalid';
+  try {
+    const url = new URL(next, base);
+    if (url.origin !== base) return '/catalog';
+    return url.pathname + url.search;
+  } catch {
+    return '/catalog';
+  }
 }
 
 export default async function LoginPage({

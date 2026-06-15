@@ -16,18 +16,22 @@ export function LoginForm({ next }: { next: string }) {
     e.preventDefault();
     setPending(true);
     setError(null);
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (res.ok) {
-      // Full navigation so every RSC renders with the new cookies.
-      window.location.assign(next);
-      return;
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (res.ok) {
+        // Full navigation so every RSC renders with the new cookies.
+        window.location.assign(next);
+        return;
+      }
+      setError(res.status === 401 ? 'Invalid email or password.' : 'Sign in failed. Try again.');
+    } catch {
+      setError('Sign in failed. Try again.');
     }
     setPending(false);
-    setError(res.status === 401 ? 'Invalid email or password.' : 'Sign in failed. Try again.');
   }
 
   return (
@@ -55,7 +59,11 @@ export function LoginForm({ next }: { next: string }) {
             className="mt-1 w-full rounded-sm border border-line bg-paper px-2 py-1.5 text-sm focus:border-pine focus:outline-none"
           />
         </label>
-        {error && <p className="text-sm text-full">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm text-full">
+            {error}
+          </p>
+        )}
         <Button type="submit" disabled={pending}>
           {pending ? 'Signing in' : 'Sign in'}
         </Button>
