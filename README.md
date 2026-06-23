@@ -1,15 +1,16 @@
 # Enroll
 
-Course registration system. pnpm monorepo with a NestJS API and an Angular web app.
+Course registration system. pnpm monorepo with a NestJS API and a Next.js web app.
 
 ## Layout
 
 ```
 apps/
-  api/        NestJS + Prisma + Postgres
-  web/        Angular 18 standalone
+  api/          NestJS, Prisma, Postgres
+  web/          Next.js 16 (App Router, port 3001)
+  web-angular/  Archived Angular 18 app (superseded by apps/web)
 packages/
-  shared/     Shared TypeScript types and enums
+  shared/       Shared TypeScript types and enums
 ```
 
 ## Prerequisites
@@ -55,17 +56,17 @@ Two terminals:
 pnpm dev:api      # http://localhost:3000
 
 # Terminal 2
-pnpm dev:web      # http://localhost:4200
+pnpm dev:web      # http://localhost:3001 (proxies /api to the NestJS server)
 ```
 
-The Angular dev server proxies `/api/*` to `http://localhost:3000` via `apps/web/proxy.conf.json`.
+The Next.js dev server proxies `/api/*` to `http://localhost:3000` via the `rewrites` in `apps/web/next.config.ts`.
 
 ## Useful scripts
 
 | Script              | What it does                                        |
 | ------------------- | --------------------------------------------------- |
 | `pnpm dev:api`      | Start the NestJS API in watch mode                  |
-| `pnpm dev:web`      | Start the Angular dev server                        |
+| `pnpm dev:web`      | Start the Next.js dev server                        |
 | `pnpm db:migrate`   | Run `prisma migrate dev` against the API database   |
 | `pnpm db:studio`    | Open Prisma Studio                                  |
 | `pnpm db:generate`  | Regenerate the Prisma client                        |
@@ -126,4 +127,4 @@ curl http://localhost:3000/health
 # {"ok":true}
 ```
 
-Then open http://localhost:4200 — you should see the "Enroll, coming soon" home view.
+Then open http://localhost:3001. The home route redirects to the catalog, sending you to sign-in first if you are logged out.
