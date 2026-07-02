@@ -70,6 +70,13 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
                     </Badge>
                   </TD>
                   <TD className="text-right">
+                    {/* TODO(waitlist-mgmt task 11): the API now returns
+                        s.viewerEnrollment for students plus
+                        s.waitlistCount/s.waitlistCap. Render inline
+                        status (Enrolled / Waitlisted #N / Completed)
+                        instead of the button when standing exists, a
+                        "Section and waitlist full" note when the cap is
+                        reached, and "N waiting" on the seats badge. */}
                     {isStudent && <EnrollButton sectionId={s.id} full={status === 'full'} />}
                     {isStaff && (
                       <Link

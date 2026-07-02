@@ -22,6 +22,12 @@ export default async function WaitlistPage({
   if (!UUID_RE.test(id)) notFound();
   const { course, section } = await searchParams;
 
+  // TODO(waitlist-mgmt task 12): also fetch SectionSummary from the new
+  // GET /sections/:id and the viewer identity. Admins get a settings
+  // card (capacity, waitlistCap, save via PATCH /sections/:id) and
+  // up/down reorder controls posting the full ordered id list to
+  // PATCH /sections/:id/waitlist (route pending, task 7); advisors keep
+  // this read-only table.
   const entries = await apiGet<WaitlistEntry[]>(`/sections/${id}/waitlist`);
 
   return (

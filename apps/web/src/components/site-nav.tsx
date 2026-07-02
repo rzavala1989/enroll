@@ -58,6 +58,10 @@ export function SiteNav({ identity }: { identity: AuthUser | null }) {
             />
           )}
         </nav>
+        {/* TODO(waitlist-mgmt task 13): Notifications link with unread
+            count badge here (layout fetches the count server-side from
+            GET /api/notifications and passes it as a prop); /notifications
+            page with mark-read and mark-all-read is also pending. */}
         <div className="ml-auto flex items-center gap-3">
           {identity && (
             <span className="flex items-center gap-2 text-sm text-paper/90">

@@ -382,6 +382,10 @@ export class EnrollmentService {
     );
   }
 
+  // TODO(waitlist-mgmt task 10): populate the shared contract's optional
+  // droppedAt/completedAt on EnrollmentResultDto here and in drop():
+  // add both to the selects, ISO-stringify when non-null. The shared
+  // EnrollmentResult type already declares them.
   async findOne(enrollmentId: string): Promise<EnrollmentResultDto> {
     const e = await this.prisma.enrollment.findUnique({
       where: { id: enrollmentId },

@@ -1,10 +1,16 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { EnrollmentStatus, Prisma } from '@prisma/client';
 import { AuditAction } from '@enroll/shared';
 import { Queue } from 'bullmq';
 
 import { AuditService } from '../audit/audit.service';
+import type { RequestActor } from '../enrollment/enrollment.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistEntryDto } from './dto/waitlist-entry.dto';
 
@@ -65,6 +71,16 @@ export class WaitlistService {
     }));
   }
 
+  // TODO(waitlist-mgmt task 7, docs/superpowers/plans/2026-07-01-waitlist-management.md):
+  // reorder(sectionId, orderedEnrollmentIds, actor) goes here. Under the
+  // section FOR UPDATE lock: 404 if the section is gone, 409
+  // WAITLIST_CHANGED unless the submitted ids exactly match the current
+  // WAITLISTED set, then renumber waitlistPosition 1..N in submitted
+  // order, audit WAITLIST_REORDERED (before/after ordered ids), return
+  // listForSection. The ConflictException/NotFoundException/RequestActor
+  // imports above are staged for this. Controller route and DTO
+  // (dto/reorder-waitlist.dto.ts) are also pending; see the controller TODO.
+
   /** Enqueue a promotion sweep for a section. Coalesces by jobId so concurrent drops on the same section produce one queued job. */
   async enqueuePromotion(sectionId: string): Promise<void> {
     try {
@@ -123,6 +139,11 @@ export class WaitlistService {
         count += 1;
         promoted += 1;
 
+        // TODO(waitlist-mgmt task 8): write a WAITLIST_PROMOTED
+        // Notification row here, inside this transaction, via
+        // NotificationsService.createInTx (module pending). Needs course
+        // code and section number fetched with the locked read above.
+
         await this.audit.recordEvent(tx, {
           action: AuditAction.ENROLLMENT_PROMOTED,
           actor: { userId: null, ipAddress: null, userAgent: null },
@@ -138,4 +159,13 @@ export class WaitlistService {
       }
     });
   }
+
+  // TODO(waitlist-mgmt task 9): expireClosedWaitlists() goes here,
+  // scheduled hourly with @Cron from @nestjs/schedule (ScheduleModule is
+  // already registered in AppModule). Find sections that still have
+  // WAITLISTED rows in terms past registrationCloses; per section, under
+  // the section lock: set rows DROPPED with droppedAt stamped and
+  // waitlistPosition null, audit ENROLLMENT_WAITLIST_EXPIRED with
+  // metadata reason REGISTRATION_CLOSED and a null actor, and write a
+  // WAITLIST_EXPIRED notification per row.
 }

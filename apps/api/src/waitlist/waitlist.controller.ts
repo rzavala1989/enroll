@@ -14,6 +14,12 @@ import { WaitlistService } from './waitlist.service';
 export class WaitlistController {
   constructor(private readonly waitlist: WaitlistService) {}
 
+  // TODO(waitlist-mgmt task 7): add PATCH ':id/waitlist' with
+  // method-level @Roles('ADMIN') (narrows the class-level ADMIN/ADVISOR,
+  // same override pattern as EnrollmentController.getOne), body
+  // ReorderWaitlistDto (dto/reorder-waitlist.dto.ts, already written),
+  // delegating to waitlist.reorder with the request actor.
+
   @Get(':id/waitlist')
   @ApiOperation({ summary: "List a section's waitlist in order" })
   @ApiOkResponse({ type: [WaitlistEntryDto] })
