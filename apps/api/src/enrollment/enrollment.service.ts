@@ -109,9 +109,14 @@ export class EnrollmentService {
       //    blocks any other transaction trying to lock the same row
       //    until ours commits or rolls back.
       const locked = await tx.$queryRaw<
-        Array<{ id: string; capacity: number; enrolledCount: number }>
+        Array<{
+          id: string;
+          capacity: number;
+          enrolledCount: number;
+          waitlistCap: number | null;
+        }>
       >`
-        SELECT id, capacity, "enrolledCount"
+        SELECT id, capacity, "enrolledCount", "waitlistCap"
         FROM "Section"
         WHERE id = ${input.sectionId}::uuid
         FOR UPDATE
@@ -181,7 +186,25 @@ export class EnrollmentService {
         };
       }
 
-      // Section full: create a WAITLISTED row at the next sparse position.
+      // Section full: the waitlist takes over, unless it is capped and
+      // already full. SECTION_FULL therefore means "no seat AND no
+      // waitlist space"; an uncapped or open waitlist never hits it.
+      if (live.waitlistCap != null) {
+        const waiting = await tx.enrollment.count({
+          where: {
+            sectionId: input.sectionId,
+            status: EnrollmentStatus.WAITLISTED,
+          },
+        });
+        if (waiting >= live.waitlistCap) {
+          throw new ConflictException({
+            code: 'SECTION_FULL',
+            message: 'Section and its waitlist are full.',
+          });
+        }
+      }
+
+      // Create a WAITLISTED row at the next sparse position.
       const position = await this.waitlist.assignPosition(tx, input.sectionId);
       const enrollment = await tx.enrollment.create({
         data: {
