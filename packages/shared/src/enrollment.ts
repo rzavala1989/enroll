@@ -30,12 +30,20 @@ export interface EnrollmentResult {
   sectionEnrolledCount: number;
   /** Section capacity (for UX hints). */
   sectionCapacity: number;
+  /** When the enrollment was dropped (ISO 8601); present once dropped. */
+  droppedAt?: string;
+  /** When the enrollment was completed (ISO 8601); present once completed. */
+  completedAt?: string;
 }
 
 /**
  * Specific failure modes the API surfaces. Distinguishing these lets
  * the UI tell the user "that section is full" vs "you already have a
  * conflict" without parsing a string.
+ *
+ * SECTION_FULL means every seat is taken AND the waitlist is at its
+ * cap; a full section with waitlist space returns 201 WAITLISTED
+ * instead.
  */
 export type EnrollFailureCode =
   | 'SECTION_FULL'

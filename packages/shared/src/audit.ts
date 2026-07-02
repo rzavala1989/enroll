@@ -6,6 +6,12 @@ export enum AuditAction {
   ENROLLMENT_WAITLISTED = 'ENROLLMENT_WAITLISTED',
   ENROLLMENT_WAITLIST_LEFT = 'ENROLLMENT_WAITLIST_LEFT',
   ENROLLMENT_PROMOTED = 'ENROLLMENT_PROMOTED',
+  /** Waitlist row expired because its term's registration closed. */
+  ENROLLMENT_WAITLIST_EXPIRED = 'ENROLLMENT_WAITLIST_EXPIRED',
+  /** Admin changed section capacity or waitlist cap. */
+  SECTION_UPDATED = 'SECTION_UPDATED',
+  /** Admin manually reordered a section's waitlist. */
+  WAITLIST_REORDERED = 'WAITLIST_REORDERED',
 }
 
 export type AuditTargetType = 'enrollment' | 'section' | 'course' | 'user' | 'auth';

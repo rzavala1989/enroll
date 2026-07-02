@@ -1,13 +1,16 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { EnrollmentStatus, Prisma } from '@prisma/client';
+import type { EnrollmentStatus as SharedEnrollmentStatus } from '@enroll/shared';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 import {
   CourseDetailDto,
   CourseListItemDto,
   ListCoursesQueryDto,
   PaginatedCoursesResponseDto,
   SectionDto,
+  ViewerEnrollmentDto,
 } from './dto';
 
 /** Shape returned by the FTS raw query. Snake-case columns match Postgres. */
@@ -16,11 +19,27 @@ interface FtsRow {
   rank: number;
 }
 
+/** Who is looking at the course detail; drives viewerEnrollment. */
+export interface CourseViewer {
+  userId: string;
+  isStudent: boolean;
+}
+
+/** Lower index wins when a student has several rows for one section. */
+const VIEWER_STATUS_PRECEDENCE: EnrollmentStatus[] = [
+  EnrollmentStatus.ENROLLED,
+  EnrollmentStatus.WAITLISTED,
+  EnrollmentStatus.COMPLETED,
+];
+
 @Injectable()
 export class CoursesService {
   private readonly logger = new Logger(CoursesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly waitlist: WaitlistService,
+  ) {}
 
   /**
    * Paginated, filterable, optionally full-text-searched course list.
@@ -154,11 +173,23 @@ export class CoursesService {
   /**
    * Single course with sections for the active (or specified) term.
    *
+   * When the viewer is a student, each section carries their own
+   * standing (viewerEnrollment) so the UI can render "Enrolled" or
+   * "Waitlisted #N" instead of a live Enroll button. Non-student
+   * viewers get no viewerEnrollment key at all. This route is
+   * deliberately uncached (only the list endpoint sits behind the
+   * CacheInterceptor), so per-viewer data cannot leak across users.
+   *
    * @param id - Course UUID.
+   * @param viewer - The authenticated requester; drives viewerEnrollment.
    * @param termId - Optional term to filter sections by; defaults to
    *   the current open term.
    */
-  async getCourse(id: string, termId?: string): Promise<CourseDetailDto> {
+  async getCourse(
+    id: string,
+    viewer?: CourseViewer,
+    termId?: string,
+  ): Promise<CourseDetailDto> {
     const activeTermId = termId ?? (await this.resolveActiveTermId());
 
     const course = await this.prisma.course.findUnique({
@@ -175,6 +206,13 @@ export class CoursesService {
       throw new NotFoundException(`Course ${id} not found`);
     }
 
+    const sectionIds = course.sections.map((s) => s.id);
+    const waitlistCounts = await this.countWaitlisted(sectionIds);
+    const viewerBySection =
+      viewer?.isStudent && sectionIds.length > 0
+        ? await this.resolveViewerEnrollments(viewer.userId, sectionIds)
+        : undefined;
+
     const sections: SectionDto[] = course.sections.map((s) => ({
       id: s.id,
       sectionNumber: s.sectionNumber,
@@ -184,6 +222,11 @@ export class CoursesService {
       capacity: s.capacity,
       enrolledCount: s.enrolledCount,
       seatsAvailable: Math.max(0, s.capacity - s.enrolledCount),
+      waitlistCount: waitlistCounts.get(s.id) ?? 0,
+      waitlistCap: s.waitlistCap,
+      ...(viewerBySection
+        ? { viewerEnrollment: viewerBySection.get(s.id) ?? null }
+        : {}),
     }));
 
     return {
@@ -194,6 +237,80 @@ export class CoursesService {
       credits: course.credits,
       sections,
     };
+  }
+
+  /** WAITLISTED row count per section, one groupBy for the whole page. */
+  private async countWaitlisted(
+    sectionIds: string[],
+  ): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (sectionIds.length === 0) return counts;
+    const grouped = await this.prisma.enrollment.groupBy({
+      by: ['sectionId'],
+      where: {
+        sectionId: { in: sectionIds },
+        status: EnrollmentStatus.WAITLISTED,
+      },
+      _count: { _all: true },
+    });
+    for (const g of grouped) counts.set(g.sectionId, g._count._all);
+    return counts;
+  }
+
+  /**
+   * The viewing student's best row per section. Precedence ENROLLED >
+   * WAITLISTED > COMPLETED (ties broken by newest enrolledAt via the
+   * query order); DROPPED rows are excluded so a student who dropped
+   * sees a live Enroll button again.
+   */
+  private async resolveViewerEnrollments(
+    userId: string,
+    sectionIds: string[],
+  ): Promise<Map<string, ViewerEnrollmentDto>> {
+    const rows = await this.prisma.enrollment.findMany({
+      where: {
+        studentId: userId,
+        sectionId: { in: sectionIds },
+        status: { in: VIEWER_STATUS_PRECEDENCE },
+      },
+      orderBy: { enrolledAt: 'desc' },
+      select: { id: true, sectionId: true, status: true, waitlistPosition: true },
+    });
+
+    const best = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      const current = best.get(row.sectionId);
+      if (
+        !current ||
+        VIEWER_STATUS_PRECEDENCE.indexOf(row.status) <
+          VIEWER_STATUS_PRECEDENCE.indexOf(current.status)
+      ) {
+        best.set(row.sectionId, row);
+      }
+    }
+
+    const out = new Map<string, ViewerEnrollmentDto>();
+    for (const [sectionId, row] of best) {
+      let waitlistPosition: number | undefined;
+      if (
+        row.status === EnrollmentStatus.WAITLISTED &&
+        row.waitlistPosition != null
+      ) {
+        waitlistPosition = await this.waitlist.computeRank(
+          this.prisma,
+          sectionId,
+          row.waitlistPosition,
+        );
+      }
+      out.set(sectionId, {
+        enrollmentId: row.id,
+        // Prisma's EnrollmentStatus is nominally distinct from the
+        // shared enum despite identical string values; cast once here.
+        status: row.status as string as SharedEnrollmentStatus,
+        waitlistPosition,
+      });
+    }
+    return out;
   }
 
   /**

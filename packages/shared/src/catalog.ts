@@ -1,4 +1,5 @@
 import { Department } from './department';
+import { EnrollmentStatus } from './enums';
 
 /** Sort options for the course list endpoint. */
 export type CourseSortBy = 'code' | 'title' | 'relevance';
@@ -47,6 +48,18 @@ export interface PaginatedCoursesResponse {
   totalPages: number;
 }
 
+/**
+ * The viewing student's own standing in a section. DROPPED rows are
+ * never surfaced here, so a student who dropped can enroll again.
+ */
+export interface ViewerEnrollment {
+  enrollmentId: string;
+  /** ENROLLED, WAITLISTED, or COMPLETED. */
+  status: EnrollmentStatus;
+  /** 1-based dense rank; present only when status is WAITLISTED. */
+  waitlistPosition?: number;
+}
+
 /** A single section as exposed by the catalog (read-only view). */
 export interface Section {
   id: string;
@@ -58,6 +71,16 @@ export interface Section {
   enrolledCount: number;
   /** `capacity - enrolledCount`, never negative. */
   seatsAvailable: number;
+  /** Students currently WAITLISTED for this section. */
+  waitlistCount: number;
+  /** Max waitlist size; null = unlimited, 0 = waitlist disabled. */
+  waitlistCap: number | null;
+  /**
+   * The authenticated student's active or completed enrollment in this
+   * section. Null for students with no standing; omitted entirely for
+   * staff and other non-student viewers.
+   */
+  viewerEnrollment?: ViewerEnrollment | null;
 }
 
 /** Full course detail with sections for the active term. */

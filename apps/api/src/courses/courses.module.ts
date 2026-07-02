@@ -2,6 +2,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 import { CoursesController } from './courses.controller';
 import { CoursesService } from './courses.service';
 
@@ -11,6 +12,8 @@ import { CoursesService } from './courses.service';
     // keys by request URL, so filter combinations get distinct entries.
     CacheModule.register({ ttl: 300_000, max: 200 }),
     AuthModule,
+    // computeRank for the viewer's waitlist standing on course detail.
+    WaitlistModule,
   ],
   controllers: [CoursesController],
   providers: [CoursesService],

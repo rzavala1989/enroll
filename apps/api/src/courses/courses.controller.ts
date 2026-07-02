@@ -14,7 +14,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtPayload } from '../auth/types/jwt-payload.interface';
 import { CoursesService } from './courses.service';
 import {
   CourseDetailDto,
@@ -48,11 +50,19 @@ export class CoursesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a course with sections for the active term' })
+  @ApiOperation({
+    summary: 'Get a course with sections for the active term',
+    description:
+      "Student viewers additionally get their own standing per section (viewerEnrollment). This route is uncached on purpose; see the list endpoint's CacheInterceptor note.",
+  })
   @ApiOkResponse({ type: CourseDetailDto })
   get(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: JwtPayload,
   ): Promise<CourseDetailDto> {
-    return this.coursesService.getCourse(id);
+    return this.coursesService.getCourse(id, {
+      userId: user.sub,
+      isStudent: user.roles?.includes('STUDENT') ?? false,
+    });
   }
 }

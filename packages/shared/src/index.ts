@@ -5,3 +5,5 @@ export * from './enrollment';
 export * from './audit';
 export * from './auth';
 export * from './waitlist';
+export * from './sections';
+export * from './notification';
