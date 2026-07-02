@@ -40,7 +40,8 @@ model User {
   advisor   User?   @relation("AdvisorAdvisee", fields: [advisorId], references: [id])
   advisees  User[]  @relation("AdvisorAdvisee")
 
-  enrollments Enrollment[]
+  enrollments   Enrollment[]
+  notifications Notification[]
 
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
@@ -121,6 +122,9 @@ model Section {
   capacity      Int
   enrolledCount Int @default(0) // denormalized for performance
 
+  /// Max students allowed on the waitlist; null = unlimited, 0 = waitlist disabled.
+  waitlistCap Int?
+
   enrollments Enrollment[]
 
   createdAt DateTime @default(now())
@@ -156,6 +160,28 @@ model Enrollment {
   @@index([sectionId])
   @@index([status])
   @@index([sectionId, waitlistPosition])
+}
+
+// In-app notifications, written inside the same transaction as the
+// event they describe (waitlist promotion, waitlist expiry) so a
+// notification never exists for a change that rolled back. `type` is a
+// plain string (NotificationType in @enroll/shared) so new kinds don't
+// need a Postgres enum migration.
+model Notification {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type    String
+  title   String
+  body    String
+  payload Json?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }
 
 // Phase 5 audit outbox. Rows are written inside the same Postgres
