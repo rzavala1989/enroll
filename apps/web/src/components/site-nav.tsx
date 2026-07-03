@@ -23,7 +23,13 @@ function NavLink({ href, label, active }: { href: string; label: string; active:
   );
 }
 
-export function SiteNav({ identity }: { identity: AuthUser | null }) {
+export function SiteNav({
+  identity,
+  unreadCount,
+}: {
+  identity: AuthUser | null;
+  unreadCount: number;
+}) {
   const pathname = usePathname();
   const [signingOut, setSigningOut] = useState(false);
 
@@ -57,11 +63,22 @@ export function SiteNav({ identity }: { identity: AuthUser | null }) {
               active={pathname.startsWith('/enrollments')}
             />
           )}
+          {identity && (
+            <Link
+              href="/notifications"
+              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+              className={cn(
+                'flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm font-medium transition-colors',
+                pathname.startsWith('/notifications')
+                  ? 'bg-pine-soft text-pine-dark'
+                  : 'text-paper/90 hover:bg-pine-dark',
+              )}
+            >
+              Notifications
+              {unreadCount > 0 && <Badge tone="amber">{unreadCount}</Badge>}
+            </Link>
+          )}
         </nav>
-        {/* TODO(waitlist-mgmt task 13): Notifications link with unread
-            count badge here (layout fetches the count server-side from
-            GET /api/notifications and passes it as a prop); /notifications
-            page with mark-read and mark-all-read is also pending. */}
         <div className="ml-auto flex items-center gap-3">
           {identity && (
             <span className="flex items-center gap-2 text-sm text-paper/90">
