@@ -67,17 +67,18 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
                       {status === 'full'
                         ? 'Full'
                         : `${s.seatsAvailable} of ${s.capacity} open`}
+                      {s.waitlistCount > 0 && ` · ${s.waitlistCount} waiting`}
                     </Badge>
                   </TD>
                   <TD className="text-right">
-                    {/* TODO(waitlist-mgmt task 11): the API now returns
-                        s.viewerEnrollment for students plus
-                        s.waitlistCount/s.waitlistCap. Render inline
-                        status (Enrolled / Waitlisted #N / Completed)
-                        instead of the button when standing exists, a
-                        "Section and waitlist full" note when the cap is
-                        reached, and "N waiting" on the seats badge. */}
-                    {isStudent && <EnrollButton sectionId={s.id} full={status === 'full'} />}
+                    {isStudent && (
+                      <EnrollButton
+                        sectionId={s.id}
+                        full={status === 'full'}
+                        waitlistFull={status === 'full' && s.waitlistCap != null && s.waitlistCount >= s.waitlistCap}
+                        viewerEnrollment={s.viewerEnrollment}
+                      />
+                    )}
                     {isStaff && (
                       <Link
                         href={`/sections/${s.id}/waitlist?course=${encodeURIComponent(course.code)}&section=${encodeURIComponent(s.sectionNumber)}`}

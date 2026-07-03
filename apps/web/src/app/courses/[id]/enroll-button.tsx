@@ -2,18 +2,39 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import type { EnrollmentResult } from '@enroll/shared';
+import type { EnrollmentResult, ViewerEnrollment } from '@enroll/shared';
 
 import { useToast } from '@/components/toast';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ApiError, apiFetch } from '@/lib/api/client';
 import { enrollErrorMessage } from '@/lib/enroll-errors';
 
-export function EnrollButton({ sectionId, full }: { sectionId: string; full: boolean }) {
+function initialDone(viewerEnrollment?: ViewerEnrollment | null): string | null {
+  if (viewerEnrollment?.status === 'ENROLLED') return 'Enrolled';
+  if (viewerEnrollment?.status === 'WAITLISTED') {
+    return `Waitlisted, #${viewerEnrollment.waitlistPosition} in line`;
+  }
+  return null;
+}
+
+export function EnrollButton({
+  sectionId,
+  full,
+  waitlistFull = false,
+  viewerEnrollment,
+}: {
+  sectionId: string;
+  full: boolean;
+  /** Section is full and its waitlist is at cap: no button, just a note. */
+  waitlistFull?: boolean;
+  /** The viewer's existing standing in this section, when any. */
+  viewerEnrollment?: ViewerEnrollment | null;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [pending, setPending] = useState(false);
-  const [done, setDone] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(() => initialDone(viewerEnrollment));
   const [error, setError] = useState<string | null>(null);
 
   async function enroll() {
@@ -51,7 +72,15 @@ export function EnrollButton({ sectionId, full }: { sectionId: string; full: boo
     }
   }
 
+  if (viewerEnrollment?.status === 'COMPLETED') {
+    return <Badge tone="neutral">Completed</Badge>;
+  }
+
   if (done) return <span className="text-sm font-semibold text-pine">{done}</span>;
+
+  if (waitlistFull) {
+    return <span className="text-sm text-ink-soft">Section and waitlist full</span>;
+  }
 
   return (
     <div className="flex flex-col items-end gap-1">

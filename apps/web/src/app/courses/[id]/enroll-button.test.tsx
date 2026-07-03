@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EnrollmentStatus } from '@enroll/shared';
 
 import { ToastProvider } from '@/components/toast';
 import { ApiError, apiFetch } from '@/lib/api/client';
@@ -45,7 +46,7 @@ describe('EnrollButton', () => {
 
   it('shows enrolled state and refreshes on success', async () => {
     apiFetchMock.mockResolvedValueOnce({
-      status: 'ENROLLED',
+      status: EnrollmentStatus.ENROLLED,
       sectionEnrolledCount: 12,
       sectionCapacity: 30,
     });
@@ -64,7 +65,7 @@ describe('EnrollButton', () => {
 
   it('shows the waitlist position when waitlisted', async () => {
     apiFetchMock.mockResolvedValueOnce({
-      status: 'WAITLISTED',
+      status: EnrollmentStatus.WAITLISTED,
       waitlistPosition: 4,
       sectionEnrolledCount: 30,
       sectionCapacity: 30,
@@ -90,5 +91,57 @@ describe('EnrollButton', () => {
       expect(screen.getByText('You are already enrolled in this section.')).toBeInTheDocument(),
     );
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('renders the enrolled state inline when the viewer is already enrolled, without a button', () => {
+    render(
+      <ToastProvider>
+        <EnrollButton
+          sectionId="sec-1"
+          full={false}
+          viewerEnrollment={{ enrollmentId: 'e1', status: EnrollmentStatus.ENROLLED }}
+        />
+      </ToastProvider>,
+    );
+    expect(screen.getByText('Enrolled')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('renders the waitlisted state inline with the position when the viewer is already waitlisted', () => {
+    render(
+      <ToastProvider>
+        <EnrollButton
+          sectionId="sec-1"
+          full={true}
+          viewerEnrollment={{ enrollmentId: 'e1', status: EnrollmentStatus.WAITLISTED, waitlistPosition: 4 }}
+        />
+      </ToastProvider>,
+    );
+    expect(screen.getByText('Waitlisted, #4 in line')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('renders a neutral Completed badge when the viewer already completed the section', () => {
+    render(
+      <ToastProvider>
+        <EnrollButton
+          sectionId="sec-1"
+          full={false}
+          viewerEnrollment={{ enrollmentId: 'e1', status: EnrollmentStatus.COMPLETED }}
+        />
+      </ToastProvider>,
+    );
+    expect(screen.getByText('Completed')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('renders a plain full note instead of a button when the section and its waitlist are both full', () => {
+    render(
+      <ToastProvider>
+        <EnrollButton sectionId="sec-1" full={true} waitlistFull={true} />
+      </ToastProvider>,
+    );
+    expect(screen.getByText('Section and waitlist full')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
