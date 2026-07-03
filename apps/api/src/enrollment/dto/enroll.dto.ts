@@ -47,6 +47,12 @@ export class EnrollmentResultDto {
 
   @ApiProperty()
   sectionCapacity!: number;
+
+  @ApiProperty({ required: false, description: 'ISO 8601; present only once the enrollment is DROPPED.' })
+  droppedAt?: string;
+
+  @ApiProperty({ required: false, description: 'ISO 8601; present only once the enrollment is COMPLETED.' })
+  completedAt?: string;
 }
 
 export class EnrollFailureDto {

@@ -188,4 +188,104 @@ describe('EnrollmentService', () => {
       await expect(svc.listMine('stu-2')).resolves.toEqual([]);
     });
   });
+
+  describe('drop', () => {
+    const actor = { userId: 'stu-1', ipAddress: null, userAgent: null };
+
+    it('stamps droppedAt on an enrolled drop and frees the seat', async () => {
+      const tx = {
+        enrollment: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'e1',
+            studentId: 'stu-1',
+            sectionId: 'sec-1',
+            status: EnrollmentStatus.ENROLLED,
+            waitlistPosition: null,
+          }),
+          update: jest.fn().mockResolvedValue({
+            id: 'e1',
+            studentId: 'stu-1',
+            sectionId: 'sec-1',
+            status: EnrollmentStatus.DROPPED,
+            enrolledAt: new Date('2026-06-01T10:00:00Z'),
+            droppedAt: new Date('2026-07-01T10:00:00Z'),
+          }),
+        },
+        section: {
+          update: jest.fn().mockResolvedValue({ capacity: 20, enrolledCount: 19 }),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([{ id: 'sec-1' }]),
+      } as any;
+      const prisma = { $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)) } as any;
+      const audit = { recordEvent: jest.fn().mockResolvedValue(undefined) } as any;
+      const waitlist = { enqueuePromotion: jest.fn().mockResolvedValue(undefined) } as any;
+      const svc = new EnrollmentService(prisma, audit, waitlist);
+
+      const result = await svc.drop('e1', 'stu-1', actor);
+
+      expect(result.droppedAt).toBe('2026-07-01T10:00:00.000Z');
+      expect(waitlist.enqueuePromotion).toHaveBeenCalledWith('sec-1');
+    });
+
+    it('stamps droppedAt when leaving the waitlist, without freeing a seat', async () => {
+      const tx = {
+        enrollment: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'e1',
+            studentId: 'stu-1',
+            sectionId: 'sec-1',
+            status: EnrollmentStatus.WAITLISTED,
+            waitlistPosition: 3,
+          }),
+          update: jest.fn().mockResolvedValue({
+            id: 'e1',
+            studentId: 'stu-1',
+            sectionId: 'sec-1',
+            status: EnrollmentStatus.DROPPED,
+            enrolledAt: new Date('2026-06-01T10:00:00Z'),
+            droppedAt: new Date('2026-07-01T10:00:00Z'),
+          }),
+        },
+        section: {
+          findUnique: jest.fn().mockResolvedValue({ capacity: 20, enrolledCount: 20 }),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([{ id: 'sec-1' }]),
+      } as any;
+      const prisma = { $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)) } as any;
+      const audit = { recordEvent: jest.fn().mockResolvedValue(undefined) } as any;
+      const waitlist = { enqueuePromotion: jest.fn().mockResolvedValue(undefined) } as any;
+      const svc = new EnrollmentService(prisma, audit, waitlist);
+
+      const result = await svc.drop('e1', 'stu-1', actor);
+
+      expect(result.droppedAt).toBe('2026-07-01T10:00:00.000Z');
+      expect(waitlist.enqueuePromotion).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findOne', () => {
+    it('populates droppedAt and completedAt when present', async () => {
+      const prisma = {
+        enrollment: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'e1',
+            studentId: 'stu-1',
+            sectionId: 'sec-1',
+            status: EnrollmentStatus.COMPLETED,
+            enrolledAt: new Date('2026-01-01T10:00:00Z'),
+            waitlistPosition: null,
+            droppedAt: null,
+            completedAt: new Date('2026-06-01T10:00:00Z'),
+            section: { capacity: 20, enrolledCount: 18 },
+          }),
+        },
+      } as any;
+      const svc = new EnrollmentService(prisma, {} as any, {} as any);
+
+      const result = await svc.findOne('e1');
+
+      expect(result.droppedAt).toBeUndefined();
+      expect(result.completedAt).toBe('2026-06-01T10:00:00.000Z');
+    });
+  });
 });

@@ -269,7 +269,7 @@ export class EnrollmentService {
         const left = await tx.enrollment.update({
           where: { id: enrollment.id },
           data: { status: EnrollmentStatus.DROPPED, droppedAt: new Date(), waitlistPosition: null },
-          select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true },
+          select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true, droppedAt: true },
         });
         const section = await tx.section.findUnique({
           where: { id: enrollment.sectionId },
@@ -286,6 +286,7 @@ export class EnrollmentService {
           result: {
             ...left,
             enrolledAt: left.enrolledAt.toISOString(),
+            droppedAt: left.droppedAt?.toISOString(),
             sectionEnrolledCount: section?.enrolledCount ?? 0,
             sectionCapacity: section?.capacity ?? 0,
           } as EnrollmentResultDto,
@@ -306,7 +307,7 @@ export class EnrollmentService {
       const dropped = await tx.enrollment.update({
         where: { id: enrollment.id },
         data: { status: EnrollmentStatus.DROPPED, droppedAt: new Date() },
-        select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true },
+        select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true, droppedAt: true },
       });
       const updatedSection = await tx.section.update({
         where: { id: enrollment.sectionId },
@@ -324,6 +325,7 @@ export class EnrollmentService {
         result: {
           ...dropped,
           enrolledAt: dropped.enrolledAt.toISOString(),
+          droppedAt: dropped.droppedAt?.toISOString(),
           sectionEnrolledCount: updatedSection.enrolledCount,
           sectionCapacity: updatedSection.capacity,
         } as EnrollmentResultDto,
@@ -382,10 +384,6 @@ export class EnrollmentService {
     );
   }
 
-  // TODO(waitlist-mgmt task 10): populate the shared contract's optional
-  // droppedAt/completedAt on EnrollmentResultDto here and in drop():
-  // add both to the selects, ISO-stringify when non-null. The shared
-  // EnrollmentResult type already declares them.
   async findOne(enrollmentId: string): Promise<EnrollmentResultDto> {
     const e = await this.prisma.enrollment.findUnique({
       where: { id: enrollmentId },
@@ -396,6 +394,8 @@ export class EnrollmentService {
         status: true,
         enrolledAt: true,
         waitlistPosition: true,
+        droppedAt: true,
+        completedAt: true,
         section: { select: { capacity: true, enrolledCount: true } },
       },
     });
@@ -415,6 +415,8 @@ export class EnrollmentService {
       sectionEnrolledCount: e.section.enrolledCount,
       sectionCapacity: e.section.capacity,
       waitlistPosition,
+      droppedAt: e.droppedAt?.toISOString(),
+      completedAt: e.completedAt?.toISOString(),
     };
   }
 }
