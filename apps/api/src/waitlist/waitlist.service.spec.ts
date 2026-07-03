@@ -253,4 +253,85 @@ describe('WaitlistService', () => {
       expect(result.map((r) => r.position)).toEqual([1, 2, 3]);
     });
   });
+
+  describe('expireClosedWaitlists', () => {
+    function makeTx(waitlisted: Array<{ id: string; studentId: string; waitlistPosition: number }>) {
+      return {
+        $queryRaw: jest.fn().mockResolvedValue([{ id: 'sec-1' }]),
+        enrollment: {
+          findMany: jest.fn().mockResolvedValue(waitlisted),
+          update: jest.fn().mockResolvedValue({}),
+        },
+      } as any;
+    }
+
+    const audit = { recordEvent: jest.fn().mockResolvedValue(undefined) } as any;
+    const notifications = { createInTx: jest.fn().mockResolvedValue(undefined) } as any;
+
+    beforeEach(() => {
+      audit.recordEvent.mockClear();
+      notifications.createInTx.mockClear();
+    });
+
+    it('does nothing when no section has an open waitlist past registration close', async () => {
+      const prisma = {
+        enrollment: { findMany: jest.fn().mockResolvedValue([]) },
+        $transaction: jest.fn(),
+      } as any;
+      const svc = new WaitlistService(prisma, audit, notifications, {} as any);
+
+      await svc.expireClosedWaitlists();
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('drops every WAITLISTED row for each affected section, auditing and notifying per row', async () => {
+      const tx = makeTx([
+        { id: 'e1', studentId: 'student-1', waitlistPosition: 1 },
+        { id: 'e2', studentId: 'student-2', waitlistPosition: 2 },
+      ]);
+      const prisma = {
+        enrollment: { findMany: jest.fn().mockResolvedValue([{ sectionId: 'sec-1' }]) },
+        $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
+      } as any;
+      const svc = new WaitlistService(prisma, audit, notifications, {} as any);
+
+      await svc.expireClosedWaitlists();
+
+      expect(tx.enrollment.update).toHaveBeenCalledTimes(2);
+      expect(tx.enrollment.update).toHaveBeenCalledWith({
+        where: { id: 'e1' },
+        data: { status: EnrollmentStatus.DROPPED, droppedAt: expect.any(Date), waitlistPosition: null },
+      });
+
+      expect(audit.recordEvent).toHaveBeenCalledTimes(2);
+      const event = audit.recordEvent.mock.calls[0][1];
+      expect(event.action).toBe(AuditAction.ENROLLMENT_WAITLIST_EXPIRED);
+      expect(event.actor).toEqual({ userId: null, ipAddress: null, userAgent: null });
+      expect(event.metadata).toEqual({ reason: 'REGISTRATION_CLOSED' });
+
+      expect(notifications.createInTx).toHaveBeenCalledTimes(2);
+      expect(notifications.createInTx).toHaveBeenCalledWith(tx, {
+        userId: 'student-1',
+        type: 'WAITLIST_EXPIRED',
+        title: expect.any(String),
+        body: expect.any(String),
+        payload: { enrollmentId: 'e1', sectionId: 'sec-1' },
+      });
+    });
+
+    it('skips a section whose row disappeared before the lock was acquired', async () => {
+      const tx = { $queryRaw: jest.fn().mockResolvedValue([]), enrollment: { findMany: jest.fn(), update: jest.fn() } } as any;
+      const prisma = {
+        enrollment: { findMany: jest.fn().mockResolvedValue([{ sectionId: 'sec-1' }]) },
+        $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
+      } as any;
+      const svc = new WaitlistService(prisma, audit, notifications, {} as any);
+
+      await svc.expireClosedWaitlists();
+
+      expect(tx.enrollment.findMany).not.toHaveBeenCalled();
+      expect(audit.recordEvent).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { EnrollmentStatus, Prisma } from '@prisma/client';
 import { AuditAction } from '@enroll/shared';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Queue } from 'bullmq';
 
 import { AuditService } from '../audit/audit.service';
@@ -234,12 +235,73 @@ export class WaitlistService {
     });
   }
 
-  // TODO(waitlist-mgmt task 9): expireClosedWaitlists() goes here,
-  // scheduled hourly with @Cron from @nestjs/schedule (ScheduleModule is
-  // already registered in AppModule). Find sections that still have
-  // WAITLISTED rows in terms past registrationCloses; per section, under
-  // the section lock: set rows DROPPED with droppedAt stamped and
-  // waitlistPosition null, audit ENROLLMENT_WAITLIST_EXPIRED with
-  // metadata reason REGISTRATION_CLOSED and a null actor, and write a
-  // WAITLIST_EXPIRED notification per row.
+  /**
+   * Hourly cleanup: drop leftover WAITLISTED rows in sections whose
+   * term's registration has closed. A student left on the waitlist
+   * after registration closes has no path to a seat, so the row is
+   * dropped (reusing DROPPED rather than adding an enum value) with an
+   * audit event and notification distinguishing it from a self-drop.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async expireClosedWaitlists(): Promise<void> {
+    const affected = await this.prisma.enrollment.findMany({
+      where: {
+        status: EnrollmentStatus.WAITLISTED,
+        section: { term: { registrationCloses: { lt: new Date() } } },
+      },
+      select: { sectionId: true },
+      distinct: ['sectionId'],
+    });
+
+    for (const { sectionId } of affected) {
+      await this.expireSectionWaitlist(sectionId);
+    }
+  }
+
+  private async expireSectionWaitlist(sectionId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "Section" WHERE id = ${sectionId}::uuid FOR UPDATE
+      `;
+      if (!locked[0]) return;
+
+      const rows = await tx.enrollment.findMany({
+        where: { sectionId, status: EnrollmentStatus.WAITLISTED },
+        select: { id: true, studentId: true, waitlistPosition: true },
+      });
+      if (rows.length === 0) return;
+
+      for (const row of rows) {
+        await tx.enrollment.update({
+          where: { id: row.id },
+          data: {
+            status: EnrollmentStatus.DROPPED,
+            droppedAt: new Date(),
+            waitlistPosition: null,
+          },
+        });
+
+        await this.audit.recordEvent(tx, {
+          action: AuditAction.ENROLLMENT_WAITLIST_EXPIRED,
+          actor: { userId: null, ipAddress: null, userAgent: null },
+          target: { type: 'enrollment', id: row.id },
+          before: { status: EnrollmentStatus.WAITLISTED, waitlistPosition: row.waitlistPosition },
+          after: { status: EnrollmentStatus.DROPPED },
+          metadata: { reason: 'REGISTRATION_CLOSED' },
+        });
+
+        await this.notifications.createInTx(tx, {
+          userId: row.studentId,
+          type: 'WAITLIST_EXPIRED',
+          title: 'Your waitlist spot expired',
+          body: 'Registration closed before a seat opened, so you were removed from the waitlist.',
+          payload: { enrollmentId: row.id, sectionId },
+        });
+      }
+
+      this.logger.log(
+        `Expired ${rows.length} waitlist row(s) for section ${sectionId} (registration closed).`,
+      );
+    });
+  }
 }
