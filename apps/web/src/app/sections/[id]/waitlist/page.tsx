@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import type { WaitlistEntry } from '@enroll/shared';
+import { Role } from '@enroll/shared';
+import type { SectionSummary, WaitlistEntry } from '@enroll/shared';
 
 import { Card } from '@/components/ui/card';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { apiGet } from '@/lib/api/server';
 import { formatDateTime } from '@/lib/format';
+import { getIdentity } from '@/lib/identity';
+
+import { SectionSettings } from './section-settings';
+import { WaitlistReorder } from './waitlist-reorder';
 
 export const metadata: Metadata = { title: 'Waitlist' };
 
@@ -22,13 +27,13 @@ export default async function WaitlistPage({
   if (!UUID_RE.test(id)) notFound();
   const { course, section } = await searchParams;
 
-  // TODO(waitlist-mgmt task 12): also fetch SectionSummary from the new
-  // GET /sections/:id and the viewer identity. Admins get a settings
-  // card (capacity, waitlistCap, save via PATCH /sections/:id) and
-  // up/down reorder controls posting the full ordered id list to
-  // PATCH /sections/:id/waitlist (route pending, task 7); advisors keep
-  // this read-only table.
-  const entries = await apiGet<WaitlistEntry[]>(`/sections/${id}/waitlist`);
+  const identity = await getIdentity();
+  const isAdmin = identity?.roles.includes(Role.ADMIN) ?? false;
+
+  const [entries, summary] = await Promise.all([
+    apiGet<WaitlistEntry[]>(`/sections/${id}/waitlist`),
+    isAdmin ? apiGet<SectionSummary>(`/sections/${id}`) : Promise.resolve(null),
+  ]);
 
   return (
     <div>
@@ -38,30 +43,40 @@ export default async function WaitlistPage({
       </h1>
       <p className="mt-1 font-mono text-xs text-ink-soft">Section {id}</p>
 
+      {summary && (
+        <div className="mt-6">
+          <SectionSettings section={summary} />
+        </div>
+      )}
+
       {entries.length === 0 ? (
         <Card className="mt-6 text-center text-sm text-ink-soft">No one is waiting.</Card>
       ) : (
         <div className="mt-6 max-w-2xl">
-          <Table>
-            <THead>
-              <tr>
-                <TH className="w-16">#</TH>
-                <TH>Student</TH>
-                <TH>Joined</TH>
-              </tr>
-            </THead>
-            <TBody>
-              {entries.map((e) => (
-                <TR key={e.enrollmentId}>
-                  <TD className="font-mono font-semibold text-wait">{e.position}</TD>
-                  <TD>
-                    {e.firstName} {e.lastName}
-                  </TD>
-                  <TD className="text-ink-soft">{formatDateTime(e.joinedAt)}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+          {isAdmin ? (
+            <WaitlistReorder sectionId={id} entries={entries} />
+          ) : (
+            <Table>
+              <THead>
+                <tr>
+                  <TH className="w-16">#</TH>
+                  <TH>Student</TH>
+                  <TH>Joined</TH>
+                </tr>
+              </THead>
+              <TBody>
+                {entries.map((e) => (
+                  <TR key={e.enrollmentId}>
+                    <TD className="font-mono font-semibold text-wait">{e.position}</TD>
+                    <TD>
+                      {e.firstName} {e.lastName}
+                    </TD>
+                    <TD className="text-ink-soft">{formatDateTime(e.joinedAt)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          )}
         </div>
       )}
     </div>
