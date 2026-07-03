@@ -71,15 +71,74 @@ export class WaitlistService {
     }));
   }
 
-  // TODO(waitlist-mgmt task 7, docs/superpowers/plans/2026-07-01-waitlist-management.md):
-  // reorder(sectionId, orderedEnrollmentIds, actor) goes here. Under the
-  // section FOR UPDATE lock: 404 if the section is gone, 409
-  // WAITLIST_CHANGED unless the submitted ids exactly match the current
-  // WAITLISTED set, then renumber waitlistPosition 1..N in submitted
-  // order, audit WAITLIST_REORDERED (before/after ordered ids), return
-  // listForSection. The ConflictException/NotFoundException/RequestActor
-  // imports above are staged for this. Controller route and DTO
-  // (dto/reorder-waitlist.dto.ts) are also pending; see the controller TODO.
+  /**
+   * Admin reorder of a section's waitlist.
+   *
+   * Runs under the section row lock so the set-equality check and the
+   * renumber commit atomically against a concurrent join or drop. The
+   * caller must submit every currently WAITLISTED enrollment id for the
+   * section; a stale or partial list is rejected with 409
+   * WAITLIST_CHANGED rather than silently reconciled.
+   */
+  async reorder(
+    sectionId: string,
+    orderedEnrollmentIds: string[],
+    actor: RequestActor,
+  ): Promise<WaitlistEntryDto[]> {
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "Section" WHERE id = ${sectionId}::uuid FOR UPDATE
+      `;
+      if (!locked[0]) {
+        throw new NotFoundException({
+          code: 'SECTION_NOT_FOUND',
+          message: 'Section does not exist.',
+        });
+      }
+
+      const current = await tx.enrollment.findMany({
+        where: { sectionId, status: EnrollmentStatus.WAITLISTED },
+        orderBy: { waitlistPosition: 'asc' },
+        select: { id: true },
+      });
+      const currentIds = current.map((c) => c.id);
+
+      const currentSet = new Set(currentIds);
+      const submittedSet = new Set(orderedEnrollmentIds);
+      const sameMembers =
+        currentSet.size === submittedSet.size &&
+        currentIds.every((id) => submittedSet.has(id));
+      if (!sameMembers) {
+        throw new ConflictException({
+          code: 'WAITLIST_CHANGED',
+          message: 'The waitlist changed since it was loaded. Reload and try again.',
+        });
+      }
+
+      await Promise.all(
+        orderedEnrollmentIds.map((id, i) =>
+          tx.enrollment.update({
+            where: { id },
+            data: { waitlistPosition: i + 1 },
+          }),
+        ),
+      );
+
+      await this.audit.recordEvent(tx, {
+        action: AuditAction.WAITLIST_REORDERED,
+        actor: {
+          userId: actor.userId,
+          ipAddress: actor.ipAddress,
+          userAgent: actor.userAgent,
+        },
+        target: { type: 'section', id: sectionId },
+        before: { orderedEnrollmentIds: currentIds },
+        after: { orderedEnrollmentIds },
+      });
+    });
+
+    return this.listForSection(sectionId);
+  }
 
   /** Enqueue a promotion sweep for a section. Coalesces by jobId so concurrent drops on the same section produce one queued job. */
   async enqueuePromotion(sectionId: string): Promise<void> {
