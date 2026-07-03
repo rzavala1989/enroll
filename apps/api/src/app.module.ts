@@ -7,6 +7,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { CoursesModule } from './courses/courses.module';
 import { EnrollmentModule } from './enrollment/enrollment.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SectionsModule } from './sections/sections.module';
 import { UsersModule } from './users/users.module';
@@ -38,6 +39,7 @@ import { WaitlistModule } from './waitlist/waitlist.module';
     UsersModule,
     CoursesModule,
     AuditModule,
+    NotificationsModule,
     EnrollmentModule,
     WaitlistModule,
     SectionsModule,

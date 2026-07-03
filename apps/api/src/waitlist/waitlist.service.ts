@@ -11,6 +11,7 @@ import { Queue } from 'bullmq';
 
 import { AuditService } from '../audit/audit.service';
 import type { RequestActor } from '../enrollment/enrollment.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistEntryDto } from './dto/waitlist-entry.dto';
 
@@ -26,6 +27,7 @@ export class WaitlistService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
     @InjectQueue(PROMOTE_WAITLIST_QUEUE) private readonly queue: Queue,
   ) {}
 
@@ -164,10 +166,20 @@ export class WaitlistService {
   async runPromotion(sectionId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<
-        Array<{ capacity: number; enrolledCount: number; registrationCloses: Date }>
+        Array<{
+          capacity: number;
+          enrolledCount: number;
+          registrationCloses: Date;
+          courseId: string;
+          courseCode: string;
+          sectionNumber: string;
+        }>
       >`
-        SELECT s.capacity, s."enrolledCount", t."registrationCloses"
-        FROM "Section" s JOIN "Term" t ON t.id = s."termId"
+        SELECT s.capacity, s."enrolledCount", t."registrationCloses",
+               c.id AS "courseId", c.code AS "courseCode", s."sectionNumber"
+        FROM "Section" s
+        JOIN "Term" t ON t.id = s."termId"
+        JOIN "Course" c ON c.id = s."courseId"
         WHERE s.id = ${sectionId}::uuid
         FOR UPDATE OF s
       `;
@@ -193,15 +205,18 @@ export class WaitlistService {
             enrolledAt: new Date(),
             waitlistPosition: null,
           },
-          select: { id: true, sectionId: true, status: true },
+          select: { id: true, sectionId: true, status: true, studentId: true },
         });
         count += 1;
         promoted += 1;
 
-        // TODO(waitlist-mgmt task 8): write a WAITLIST_PROMOTED
-        // Notification row here, inside this transaction, via
-        // NotificationsService.createInTx (module pending). Needs course
-        // code and section number fetched with the locked read above.
+        await this.notifications.createInTx(tx, {
+          userId: updated.studentId,
+          type: 'WAITLIST_PROMOTED',
+          title: 'You were enrolled from the waitlist',
+          body: `A seat opened in ${sec.courseCode} section ${sec.sectionNumber} and you were enrolled automatically.`,
+          payload: { enrollmentId: updated.id, sectionId: updated.sectionId, courseId: sec.courseId },
+        });
 
         await this.audit.recordEvent(tx, {
           action: AuditAction.ENROLLMENT_PROMOTED,

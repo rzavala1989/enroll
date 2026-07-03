@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { WaitlistController } from './waitlist.controller';
 import { WaitlistProcessor } from './waitlist.processor';
 import { PROMOTE_WAITLIST_QUEUE, WaitlistService } from './waitlist.service';
@@ -11,6 +12,7 @@ import { PROMOTE_WAITLIST_QUEUE, WaitlistService } from './waitlist.service';
   imports: [
     AuditModule,
     AuthModule,
+    NotificationsModule,
     BullModule.registerQueue({ name: PROMOTE_WAITLIST_QUEUE }),
   ],
   controllers: [WaitlistController],
