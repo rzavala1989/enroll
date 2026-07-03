@@ -20,9 +20,17 @@ const statusTone: Record<EnrollmentStatus, BadgeTone> = {
   [EnrollmentStatus.COMPLETED]: 'pine',
 };
 
-function EnrollmentRows({ rows, withActions }: { rows: MyEnrollment[]; withActions: boolean }) {
+function EnrollmentRows({
+  rows,
+  withActions,
+  caption,
+}: {
+  rows: MyEnrollment[];
+  withActions: boolean;
+  caption: string;
+}) {
   return (
-    <Table>
+    <Table caption={caption}>
       <THead>
         <tr>
           <TH>Status</TH>
@@ -90,7 +98,7 @@ export default async function EnrollmentsPage() {
         </Card>
       ) : (
         <div className="mt-6">
-          <EnrollmentRows rows={active} withActions />
+          <EnrollmentRows rows={active} withActions caption="Active enrollments" />
         </div>
       )}
 
@@ -100,7 +108,7 @@ export default async function EnrollmentsPage() {
             Past enrollments ({past.length})
           </summary>
           <div className="mt-3">
-            <EnrollmentRows rows={past} withActions={false} />
+            <EnrollmentRows rows={past} withActions={false} caption="Past enrollments" />
           </div>
         </details>
       )}

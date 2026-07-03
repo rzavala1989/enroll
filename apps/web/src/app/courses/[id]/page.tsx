@@ -42,7 +42,7 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
 
       <h2 className="font-display mt-8 text-lg font-semibold">Sections</h2>
       <div className="mt-3">
-        <Table>
+        <Table caption={`Sections for ${course.code}`}>
           <THead>
             <tr>
               <TH>Section</TH>

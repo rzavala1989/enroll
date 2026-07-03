@@ -54,9 +54,13 @@ export default async function WaitlistPage({
       ) : (
         <div className="mt-6 max-w-2xl">
           {isAdmin ? (
-            <WaitlistReorder sectionId={id} entries={entries} />
+            <WaitlistReorder
+              sectionId={id}
+              entries={entries}
+              caption={`Waitlist${course ? ` for ${course}` : ''}${section ? ` section ${section}` : ''}`}
+            />
           ) : (
-            <Table>
+            <Table caption={`Waitlist${course ? ` for ${course}` : ''}${section ? ` section ${section}` : ''}`}>
               <THead>
                 <tr>
                   <TH className="w-16">#</TH>

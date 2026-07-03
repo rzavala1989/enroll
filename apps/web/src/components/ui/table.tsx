@@ -2,14 +2,13 @@ import type { ReactNode, ThHTMLAttributes, TdHTMLAttributes } from 'react';
 
 import { cn } from '@/lib/cn';
 
-// TODO(waitlist-mgmt task 14): TH should default scope="col" (spread
-// order so callers can override) and Table should take an optional
-// visually hidden caption prop; wire captions on the catalog, course
-// detail, enrollments, and waitlist tables.
-export function Table({ children }: { children: ReactNode }) {
+export function Table({ caption, children }: { caption?: string; children: ReactNode }) {
   return (
     <div className="overflow-x-auto rounded-sm border border-line bg-card">
-      <table className="w-full border-collapse text-sm">{children}</table>
+      <table className="w-full border-collapse text-sm">
+        {caption && <caption className="sr-only">{caption}</caption>}
+        {children}
+      </table>
     </div>
   );
 }
@@ -32,7 +31,7 @@ export function TR({ children }: { children: ReactNode }) {
 }
 
 export function TH({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
-  return <th className={cn('px-3 py-2 font-semibold', className)} {...props} />;
+  return <th scope="col" className={cn('px-3 py-2 font-semibold', className)} {...props} />;
 }
 
 export function TD({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {

@@ -13,9 +13,11 @@ import { formatDateTime } from '@/lib/format';
 export function WaitlistReorder({
   sectionId,
   entries,
+  caption = 'Waitlist',
 }: {
   sectionId: string;
   entries: WaitlistEntry[];
+  caption?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -56,7 +58,7 @@ export function WaitlistReorder({
 
   return (
     <div>
-      <Table>
+      <Table caption={caption}>
         <THead>
           <tr>
             <TH className="w-16">#</TH>
