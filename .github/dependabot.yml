@@ -1,0 +1,31 @@
+version: 2
+
+# bcrypt, jsonwebtoken, and Next are not packages you want aging
+# quietly. Minor and patch updates are grouped so the noise stays at one
+# PR a week per ecosystem; majors come through individually because they
+# need reading.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # The archived Angular client is outside the workspace and is not
+      # maintained; see pnpm-workspace.yaml.
+      - dependency-name: '@angular/*'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker
+    directories:
+      - /apps/api
+      - /apps/web
+    schedule:
+      interval: monthly

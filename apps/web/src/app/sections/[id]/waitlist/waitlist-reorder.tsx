@@ -25,6 +25,7 @@ export function WaitlistReorder({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
 
   function move(index: number, direction: -1 | 1) {
     const target = index + direction;
@@ -32,6 +33,15 @@ export function WaitlistReorder({
     const next = [...order];
     [next[index], next[target]] = [next[target], next[index]];
     setOrder(next);
+
+    // The buttons are labelled, so a screen reader announces the press,
+    // but the result of the press is a silent reshuffle of the table
+    // above. Without this, a non-sighted admin reordering a waitlist is
+    // pressing keys and getting no confirmation of where anyone landed.
+    const moved = next[target];
+    setAnnouncement(
+      `${moved.firstName} ${moved.lastName} moved to position ${target + 1} of ${next.length}.`,
+    );
   }
 
   async function save() {
@@ -49,7 +59,9 @@ export function WaitlistReorder({
       if (err instanceof ApiError && err.body?.code === 'WAITLIST_CHANGED') {
         setStale(true);
       } else {
-        setError(err instanceof ApiError ? err.message : 'Something went wrong. Try again.');
+        setError(
+          err instanceof ApiError ? err.message : 'Something went wrong. Try again.',
+        );
       }
     } finally {
       setPending(false);
@@ -58,6 +70,9 @@ export function WaitlistReorder({
 
   return (
     <div>
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
       <Table caption={caption}>
         <THead>
           <tr>

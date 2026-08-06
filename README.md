@@ -6,125 +6,127 @@ Course registration system. pnpm monorepo with a NestJS API and a Next.js web ap
 
 ```
 apps/
-  api/          NestJS, Prisma, Postgres
+  api/          NestJS, Prisma, Postgres, Redis (BullMQ), Mongo (audit)
   web/          Next.js 16 (App Router, port 3001)
-  web-angular/  Archived Angular 18 app (superseded by apps/web)
+  web-angular/  Archived Angular 18 client, outside the pnpm workspace
 packages/
-  shared/       Shared TypeScript types and enums
+  shared/       TypeScript contracts both apps import as @enroll/shared
+load/           k6 registration-day load profile
+scripts/        migrate-safe.sh, the Prisma generated-column workaround
 ```
 
 ## Prerequisites
 
 - Node.js >= 20.11
 - pnpm >= 9 (`npm i -g pnpm`)
-- A Postgres database (Neon, local, or otherwise)
+- Docker, for the three infrastructure services and the integration tests
+
+The API needs Postgres, Redis, and Mongo. Redis is not optional: the app validates
+its environment at boot and refuses to start without `REDIS_URL`. Mongo is, and its
+absence is reported rather than fatal, because audit rows buffer in the Postgres
+outbox until it comes back.
 
 ## First-time setup
 
 From the repo root:
 
 ```bash
-# 1. Install everything
+# 1. Infrastructure: Postgres, Redis, Mongo
+pnpm infra:up
+
+# 2. Install
 pnpm install
 
-# 2. Configure the API env
+# 3. Configure the API
 cp apps/api/.env.example apps/api/.env
-# then edit apps/api/.env and paste your DATABASE_URL + JWT secrets
+# The defaults match docker-compose. Set JWT_ACCESS_SECRET:
+#   openssl rand -hex 32
 
-# 3. Build the shared package once so apps can resolve it
+# 4. Build the shared package so both apps can resolve it
 pnpm build:shared
 
-# 4. Generate the Prisma client and run the first migration
+# 5. Prisma client and schema
 pnpm db:generate
-pnpm db:migrate
+pnpm --filter api exec prisma migrate deploy
+
+# 6. Seed (refuses to run against a non-local database)
+pnpm --filter api prisma db seed
 ```
 
-To generate JWT secrets:
+## Running
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
-```
-
-Run that twice and paste the values into `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`.
-
-## Running the apps
-
-Two terminals:
-
-```bash
-# Terminal 1
 pnpm dev:api      # http://localhost:3000
-
-# Terminal 2
-pnpm dev:web      # http://localhost:3001 (proxies /api to the NestJS server)
+pnpm dev:web      # http://localhost:3001
 ```
 
-The Next.js dev server proxies `/api/*` to `http://localhost:3000` via the `rewrites` in `apps/web/next.config.ts`.
+The Next.js dev server rewrites `/api/*` to the API's versioned routes
+(`/api/v1/*`) via `apps/web/next.config.ts`, so browser code keeps calling `/api`
+and the version lives server-side.
 
-## Useful scripts
-
-| Script              | What it does                                        |
-| ------------------- | --------------------------------------------------- |
-| `pnpm dev:api`      | Start the NestJS API in watch mode                  |
-| `pnpm dev:web`      | Start the Next.js dev server                        |
-| `pnpm db:migrate`   | Run `prisma migrate dev` against the API database   |
-| `pnpm db:studio`    | Open Prisma Studio                                  |
-| `pnpm db:generate`  | Regenerate the Prisma client                        |
-| `pnpm build:shared` | Build `@enroll/shared` so apps can pick up changes  |
-
-## NestJS CLI Reference
-
-All commands run from `apps/api/`. Prefix with `npx` if the CLI isn't global.
-
-### Scaffolding
+## Verifying
 
 ```bash
-# Module + controller + service (the standard unit)
-nest g module   <name>
-nest g controller <name> --no-spec
-nest g service  <name> --no-spec
-
-# Guards, pipes, interceptors, filters
-nest g guard       <path/name> --no-spec --flat
-nest g pipe        <path/name> --no-spec --flat
-nest g interceptor <path/name> --no-spec --flat
-nest g filter      <path/name> --no-spec --flat
-
-# Decorators, middleware
-nest g decorator <path/name> --no-spec --flat
-nest g middleware <path/name> --no-spec --flat
+pnpm verify   # typecheck, lint, test, build across both apps
 ```
 
-### Flags
-
-| Flag | What it does |
-|------|-------------|
-| `--no-spec` | Skip the `.spec.ts` test stub. Write tests deliberately, not from stubs. |
-| `--flat` | Place the file directly in the target folder instead of creating a nested subfolder. |
-| `--dry-run` | Preview what gets created without writing files. |
-
-### Examples from this project
+Individually:
 
 ```bash
-# Auth module (Phase 2)
-nest g module auth
-nest g controller auth --no-spec
-nest g service auth --no-spec
-nest g guard auth/guards/jwt-auth --no-spec --flat
-nest g guard auth/guards/roles --no-spec --flat
-nest g decorator auth/decorators/roles --no-spec --flat
-nest g decorator auth/decorators/current-user --no-spec --flat
+curl http://localhost:3000/api/health/ready
+# {"status":"ok","checks":{"postgres":"up","redis":"up","mongo":"up"}}
+
+curl http://localhost:3000/api/metrics   # Prometheus exposition
+open http://localhost:3000/api/docs      # Swagger, non-production only
 ```
 
-### Gotcha
+Then open http://localhost:3001. The home route redirects to the catalog, via
+sign-in if you are logged out.
 
-The CLI auto-registers generated controllers and services in the nearest module. If you generate inside a subfolder that doesn't map to a module, check that the import landed in the right place.
+## Scripts
 
-## Verifying the install
+| Script                    | What it does                                            |
+| ------------------------- | ------------------------------------------------------- |
+| `pnpm dev:api`            | NestJS in watch mode                                    |
+| `pnpm dev:web`            | Next.js dev server                                      |
+| `pnpm infra:up` / `:down` | Start or stop Postgres, Redis, and Mongo                |
+| `pnpm verify`             | Typecheck, lint, test, and build everything             |
+| `pnpm test`               | Unit and component tests for both apps                  |
+| `pnpm test:integration`   | Concurrency invariants against a real Postgres (Docker) |
+| `pnpm db:migrate:safe`    | Generate and apply a migration, scrubbing FTS drift     |
+| `pnpm db:studio`          | Prisma Studio                                           |
+| `pnpm build:shared`       | Rebuild `@enroll/shared` after changing a contract      |
 
-```bash
-curl http://localhost:3000/health
-# {"ok":true}
-```
+## Migrations
 
-Then open http://localhost:3001. The home route redirects to the catalog, sending you to sign-in first if you are logged out.
+Use `pnpm db:migrate:safe <name>`, not `prisma migrate dev`.
+
+`Course.searchVector` is a Postgres generated column, which Prisma cannot model, so
+every migration that diffs `Course` picks up two spurious lines: a `DROP INDEX` that
+silently removes the GIN index catalog search depends on, and a `DROP DEFAULT` that
+fails at apply time. The script strips both, and CI fails any migration that
+reintroduces them.
+
+## Deployment notes
+
+Two things do not survive a naive scale-out:
+
+- **Schedulers.** The audit outbox drain, the hourly waitlist expiry, and the
+  promotion safety-net sweep are timer-driven and not leader-elected. Run web
+  replicas with `SCHEDULERS_ENABLED=false` and exactly one worker deployment with it
+  on. BullMQ promotion workers run everywhere regardless; only timers are gated.
+- **`TRUST_PROXY_HOPS`.** Set it to the number of proxies in front of the process.
+  Left at 0, `req.ip` is the proxy's address, so the audit trail attributes every
+  action to the load balancer and IP throttling treats all traffic as one client.
+
+Migrations belong in a release step that runs once, not in a container entrypoint
+where replicas would race each other.
+
+## Further reading
+
+- `apps/api/prisma/schema.prisma` for the data model, with the locking and
+  constraint rationale in comments
+- `apps/api/src/enrollment/enrollment.service.ts` for seat allocation under row locks
+- `apps/web/src/proxy.ts` for the session gate and single-flight token refresh
+- `load/registration-day.js` for what to measure before a real registration day
+- `bible/` for the chapter-by-chapter build record (local only, not in git)

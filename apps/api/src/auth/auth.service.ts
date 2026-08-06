@@ -1,9 +1,7 @@
-import {
-    Injectable,
-    UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import type { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { randomBytes, createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
@@ -14,142 +12,160 @@ import { parseDuration } from './util/parse-duration';
 
 // ── Types ─────────────────────────────────────────────
 interface TokenPair {
-    accessToken: string;
-    refreshToken: string;
+  accessToken: string;
+  refreshToken: string;
 }
+
+/**
+ * A real bcrypt hash of a value nobody can supply, compared against on
+ * the account-not-found path.
+ *
+ * Without it, a miss returns as soon as the user lookup fails while a
+ * hit pays ~100ms of bcrypt, and the response time tells an attacker
+ * which email addresses have accounts. Cost 10 matches what the seed
+ * and registration use, so both paths burn the same work.
+ */
+const DUMMY_PASSWORD_HASH =
+  '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
 
 @Injectable()
 export class AuthService {
-    private readonly refreshExpiryMs: number;
+  private readonly refreshExpiryMs: number;
 
-    constructor(
-        private readonly jwt: JwtService,
-        private readonly prisma: PrismaService,
-        private readonly config: ConfigService,
-    ) {
-        this.refreshExpiryMs = parseDuration(
-            this.config.getOrThrow<string>('JWT_REFRESH_EXPIRY'),
-        );
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService<Env, true>,
+  ) {
+    this.refreshExpiryMs = parseDuration(
+      this.config.getOrThrow('JWT_REFRESH_EXPIRY', { infer: true }),
+    );
+  }
+
+  // ── Login ───────────────────────────────────────────
+  async login(dto: LoginDto): Promise<TokenPair> {
+    const { email, password } = dto;
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    // Always compare, so the response time of an unknown email
+    // matches that of a known one with the wrong password.
+    const passwordValid = await bcrypt.compare(
+      password,
+      user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+    );
+    if (!user || !passwordValid) {
+      throw new UnauthorizedException('Invalid credentials');
     }
 
-    // ── Login ───────────────────────────────────────────
-    async login(dto: LoginDto): Promise<TokenPair> {
-        const { email, password } = dto;
-        const user = await this.prisma.user.findUnique({ where: { email } });
-        if (!user) throw new UnauthorizedException('Invalid credentials');
+    return this.generateTokenPair(user.id, user.roles, uuidv4());
+  }
 
-        const passwordValid = await bcrypt.compare(password, user.passwordHash);
-        if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+  // ── Refresh ─────────────────────────────────────────
+  async refresh(rawRefreshToken: string): Promise<TokenPair> {
+    const tokenHash = this.hashToken(rawRefreshToken);
 
-        return this.generateTokenPair(user.id, user.roles, uuidv4());
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      include: { user: { select: { id: true, roles: true } } },
+    });
+
+    // Token doesn't exist at all
+    if (!stored) throw new UnauthorizedException('Invalid refresh token');
+
+    // REUSE DETECTION: token was already revoked, someone replayed it
+    if (stored.revokedAt) {
+      await this.revokeFamily(stored.family);
+      throw new UnauthorizedException('Token reuse detected');
     }
 
-    // ── Refresh ─────────────────────────────────────────
-    async refresh(rawRefreshToken: string): Promise<TokenPair> {
-        const tokenHash = this.hashToken(rawRefreshToken);
-
-        const stored = await this.prisma.refreshToken.findUnique({
-            where: { tokenHash },
-            include: { user: { select: { id: true, roles: true } } },
-        });
-
-        // Token doesn't exist at all
-        if (!stored) throw new UnauthorizedException('Invalid refresh token');
-
-        // REUSE DETECTION: token was already revoked, someone replayed it
-        if (stored.revokedAt) {
-            await this.revokeFamily(stored.family);
-            throw new UnauthorizedException('Token reuse detected');
-        }
-
-        // Token expired naturally
-        if (stored.expiresAt < new Date()) {
-            throw new UnauthorizedException('Refresh token expired');
-        }
-
-        // Rotate: issue new pair in the same family
-        const newPair = await this.generateTokenPair(
-            stored.user.id,
-            stored.user.roles,
-            stored.family,
-        );
-
-        // Revoke the old token, link it to its replacement
-        const newTokenHash = this.hashToken(newPair.refreshToken);
-        const replacement = await this.prisma.refreshToken.findUnique({
-            where: { tokenHash: newTokenHash },
-            select: { id: true },
-        });
-
-        await this.prisma.refreshToken.update({
-            where: { id: stored.id },
-            data: {
-                revokedAt: new Date(),
-                replacedById: replacement?.id ?? null,
-            },
-        });
-
-        return newPair;
+    // Token expired naturally
+    if (stored.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token expired');
     }
 
-    // ── Logout ──────────────────────────────────────────
-    async logout(rawRefreshToken: string): Promise<void> {
-        const tokenHash = this.hashToken(rawRefreshToken);
+    // Rotate: issue new pair in the same family
+    const newPair = await this.generateTokenPair(
+      stored.user.id,
+      stored.user.roles,
+      stored.family,
+    );
 
-        await this.prisma.refreshToken.updateMany({
-            where: { tokenHash, revokedAt: null },
-            data: { revokedAt: new Date() },
-        });
-    }
+    // Revoke the old token, link it to its replacement
+    const newTokenHash = this.hashToken(newPair.refreshToken);
+    const replacement = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: newTokenHash },
+      select: { id: true },
+    });
 
-    // ── Me ──────────────────────────────────────────────
-    async me(userId: string): Promise<MeResponseDto> {
-        const user = await this.prisma.user.findUnique({
-            where: { id: userId },
-            select: { id: true, email: true, firstName: true, lastName: true, roles: true },
-        });
-        // A valid JWT for a deleted user: treat as logged out.
-        if (!user) throw new UnauthorizedException();
-        return user;
-    }
+    await this.prisma.refreshToken.update({
+      where: { id: stored.id },
+      data: {
+        revokedAt: new Date(),
+        replacedById: replacement?.id ?? null,
+      },
+    });
 
-    // ── Private helpers ─────────────────────────────────
+    return newPair;
+  }
 
-    private async generateTokenPair(
-        userId: string,
-        roles: string[],
-        family: string,
-    ): Promise<TokenPair> {
-        const jti = uuidv4();
-        const accessToken = await this.jwt.signAsync({ sub: userId, roles, jti });
+  // ── Logout ──────────────────────────────────────────
+  async logout(rawRefreshToken: string): Promise<void> {
+    const tokenHash = this.hashToken(rawRefreshToken);
 
-        const rawRefreshToken = randomBytes(32).toString('hex');
-        const tokenHash = this.hashToken(rawRefreshToken);
+    await this.prisma.refreshToken.updateMany({
+      where: { tokenHash, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 
-        await this.prisma.refreshToken.create({
-            data: {
-                userId,
-                tokenHash,
-                family,
-                expiresAt: this.refreshExpiryDate(),
-            },
-        });
+  // ── Me ──────────────────────────────────────────────
+  async me(userId: string): Promise<MeResponseDto> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, firstName: true, lastName: true, roles: true },
+    });
+    // A valid JWT for a deleted user: treat as logged out.
+    if (!user) throw new UnauthorizedException();
+    return user;
+  }
 
-        return { accessToken, refreshToken: rawRefreshToken };
-    }
+  // ── Private helpers ─────────────────────────────────
 
-    private hashToken(raw: string): string {
-        return createHash('sha256').update(raw).digest('hex');
-    }
+  private async generateTokenPair(
+    userId: string,
+    roles: string[],
+    family: string,
+  ): Promise<TokenPair> {
+    const jti = uuidv4();
+    const accessToken = await this.jwt.signAsync({ sub: userId, roles, jti });
 
-    private refreshExpiryDate(): Date {
-        return new Date(Date.now() + this.refreshExpiryMs);
-    }
+    const rawRefreshToken = randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(rawRefreshToken);
 
-    private async revokeFamily(family: string): Promise<void> {
-        await this.prisma.refreshToken.updateMany({
-            where: { family, revokedAt: null },
-            data: { revokedAt: new Date() },
-        });
-    }
+    await this.prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash,
+        family,
+        expiresAt: this.refreshExpiryDate(),
+      },
+    });
+
+    return { accessToken, refreshToken: rawRefreshToken };
+  }
+
+  private hashToken(raw: string): string {
+    return createHash('sha256').update(raw).digest('hex');
+  }
+
+  private refreshExpiryDate(): Date {
+    return new Date(Date.now() + this.refreshExpiryMs);
+  }
+
+  private async revokeFamily(family: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: { family, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 }

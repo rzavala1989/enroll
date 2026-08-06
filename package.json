@@ -7,9 +7,19 @@
     "dev:api": "pnpm --filter api start:dev",
     "dev:web": "pnpm --filter web dev",
     "db:migrate": "pnpm --filter api prisma migrate dev",
+    "db:migrate:safe": "bash scripts/migrate-safe.sh",
     "db:studio": "pnpm --filter api prisma studio",
     "db:generate": "pnpm --filter api prisma generate",
-    "build:shared": "pnpm --filter @enroll/shared build"
+    "build:shared": "pnpm --filter @enroll/shared build",
+    "build": "pnpm build:shared && pnpm --filter api build && pnpm --filter web build",
+    "typecheck": "pnpm build:shared && pnpm --filter api exec tsc --noEmit && pnpm --filter web exec tsc --noEmit",
+    "lint": "pnpm --filter api lint && pnpm --filter web lint",
+    "test": "pnpm build:shared && pnpm --filter api test && pnpm --filter web test",
+    "test:integration": "pnpm --filter api test:integration",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "prepare": "husky"
   },
   "engines": {
     "node": ">=20.11",
@@ -26,14 +36,14 @@
       "prisma"
     ]
   },
-  "dependencies": {
-    "@tsoa/runtime": "^7.0.0-alpha.0",
-    "swagger-ui-express": "^5.0.1",
-    "tsoa": "^7.0.0-alpha.0",
-    "yamljs": "^0.3.0"
-  },
   "devDependencies": {
-    "@types/swagger-ui-express": "^4.1.8",
-    "@types/yamljs": "^0.2.34"
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.3.3"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,json,md,yml,yaml,css}": "prettier --write",
+    "apps/api/**/*.ts": "pnpm --dir apps/api exec eslint --fix --no-warn-ignored",
+    "apps/web/**/*.{ts,tsx}": "pnpm --dir apps/web exec eslint --fix --no-warn-ignored"
   }
 }

@@ -9,7 +9,15 @@ import type { AuthUser } from '@enroll/shared';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/cn';
 
-function NavLink({ href, label, active }: { href: string; label: string; active: boolean }) {
+function NavLink({
+  href,
+  label,
+  active,
+}: {
+  href: string;
+  label: string;
+  active: boolean;
+}) {
   return (
     <Link
       href={href}
@@ -55,7 +63,11 @@ export function SiteNav({
           Enroll
         </Link>
         <nav className="flex items-center gap-1">
-          <NavLink href="/catalog" label="Catalog" active={pathname.startsWith('/catalog')} />
+          <NavLink
+            href="/catalog"
+            label="Catalog"
+            active={pathname.startsWith('/catalog')}
+          />
           {isStudent && (
             <NavLink
               href="/enrollments"
@@ -66,7 +78,9 @@ export function SiteNav({
           {identity && (
             <Link
               href="/notifications"
-              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+              aria-label={
+                unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
+              }
               className={cn(
                 'flex items-center gap-1.5 rounded-sm px-2 py-1 text-sm font-medium transition-colors',
                 pathname.startsWith('/notifications')
@@ -79,21 +93,25 @@ export function SiteNav({
             </Link>
           )}
         </nav>
-        <div className="ml-auto flex items-center gap-3">
-          {identity && (
+        {/* The proxy should make a null identity unreachable outside
+            /login, which returns early above. Rendering "Sign out" for
+            nobody is the kind of thing that only shows up once the
+            guard has a hole, so guard here too. */}
+        {identity && (
+          <div className="ml-auto flex items-center gap-3">
             <span className="flex items-center gap-2 text-sm text-paper/90">
               {identity.firstName} {identity.lastName}
               {staffRole && <Badge tone="amber">{staffRole}</Badge>}
             </span>
-          )}
-          <button
-            onClick={signOut}
-            disabled={signingOut}
-            className="rounded-sm border border-paper/30 px-2 py-1 text-xs text-paper/90 hover:bg-pine-dark disabled:opacity-50"
-          >
-            {signingOut ? 'Signing out' : 'Sign out'}
-          </button>
-        </div>
+            <button
+              onClick={signOut}
+              disabled={signingOut}
+              className="rounded-sm border border-paper/30 px-2 py-1 text-xs text-paper/90 hover:bg-pine-dark disabled:opacity-50"
+            >
+              {signingOut ? 'Signing out' : 'Sign out'}
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

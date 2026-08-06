@@ -1,0 +1,8 @@
+node_modules
+dist
+.next
+coverage
+pnpm-lock.yaml
+apps/web-angular
+bible
+repomix-output.xml

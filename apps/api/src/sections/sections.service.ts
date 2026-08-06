@@ -8,7 +8,8 @@ import { EnrollmentStatus } from '@prisma/client';
 import { AuditAction } from '@enroll/shared';
 
 import { AuditService } from '../audit/audit.service';
-import type { RequestActor } from '../enrollment/enrollment.service';
+import { CatalogCacheService } from '../common/catalog-cache.service';
+import type { RequestActor } from '../common/request-actor';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import { SectionSummaryDto, UpdateSectionDto } from './dto/update-section.dto';
@@ -21,6 +22,7 @@ export class SectionsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly waitlist: WaitlistService,
+    private readonly catalogCache: CatalogCacheService,
   ) {}
 
   async getSummary(sectionId: string): Promise<SectionSummaryDto> {
@@ -69,70 +71,73 @@ export class SectionsService {
       });
     }
 
-    const { summary, capacityIncreased } = await this.prisma.$transaction(
-      async (tx) => {
-        const locked = await tx.$queryRaw<
-          Array<{ capacity: number; enrolledCount: number; waitlistCap: number | null }>
-        >`
+    const { summary, capacityIncreased } = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ capacity: number; enrolledCount: number; waitlistCap: number | null }>
+      >`
           SELECT capacity, "enrolledCount", "waitlistCap"
           FROM "Section"
           WHERE id = ${sectionId}::uuid
           FOR UPDATE
         `;
-        const current = locked[0];
-        if (!current) {
-          throw new NotFoundException({
-            code: 'SECTION_NOT_FOUND',
-            message: 'Section does not exist.',
-          });
-        }
-
-        const newCapacity = dto.capacity ?? current.capacity;
-        if (newCapacity < current.enrolledCount) {
-          throw new BadRequestException({
-            code: 'CAPACITY_BELOW_ENROLLED',
-            message: `Capacity ${newCapacity} is below the ${current.enrolledCount} students already enrolled.`,
-          });
-        }
-        const newWaitlistCap =
-          dto.waitlistCap === undefined ? current.waitlistCap : dto.waitlistCap;
-
-        const updated = await tx.section.update({
-          where: { id: sectionId },
-          data: { capacity: newCapacity, waitlistCap: newWaitlistCap },
-          select: {
-            id: true,
-            sectionNumber: true,
-            courseId: true,
-            capacity: true,
-            enrolledCount: true,
-            waitlistCap: true,
-            course: { select: { code: true } },
-          },
+      const current = locked[0];
+      if (!current) {
+        throw new NotFoundException({
+          code: 'SECTION_NOT_FOUND',
+          message: 'Section does not exist.',
         });
+      }
 
-        await this.audit.recordEvent(tx, {
-          action: AuditAction.SECTION_UPDATED,
-          actor: {
-            userId: actor.userId,
-            ipAddress: actor.ipAddress,
-            userAgent: actor.userAgent,
-          },
-          target: { type: 'section', id: sectionId },
-          before: { capacity: current.capacity, waitlistCap: current.waitlistCap },
-          after: { capacity: newCapacity, waitlistCap: newWaitlistCap },
+      const newCapacity = dto.capacity ?? current.capacity;
+      if (newCapacity < current.enrolledCount) {
+        throw new BadRequestException({
+          code: 'CAPACITY_BELOW_ENROLLED',
+          message: `Capacity ${newCapacity} is below the ${current.enrolledCount} students already enrolled.`,
         });
+      }
+      const newWaitlistCap =
+        dto.waitlistCap === undefined ? current.waitlistCap : dto.waitlistCap;
 
-        const waitlistCount = await tx.enrollment.count({
-          where: { sectionId, status: EnrollmentStatus.WAITLISTED },
-        });
+      const updated = await tx.section.update({
+        where: { id: sectionId },
+        data: { capacity: newCapacity, waitlistCap: newWaitlistCap },
+        select: {
+          id: true,
+          sectionNumber: true,
+          courseId: true,
+          capacity: true,
+          enrolledCount: true,
+          waitlistCap: true,
+          course: { select: { code: true } },
+        },
+      });
 
-        return {
-          summary: this.toSummary(updated, waitlistCount),
-          capacityIncreased: newCapacity > current.capacity,
-        };
-      },
-    );
+      await this.audit.recordEvent(tx, {
+        action: AuditAction.SECTION_UPDATED,
+        actor: {
+          userId: actor.userId,
+          ipAddress: actor.ipAddress,
+          userAgent: actor.userAgent,
+        },
+        target: { type: 'section', id: sectionId },
+        before: { capacity: current.capacity, waitlistCap: current.waitlistCap },
+        after: { capacity: newCapacity, waitlistCap: newWaitlistCap },
+      });
+
+      const waitlistCount = await tx.enrollment.count({
+        where: { sectionId, status: EnrollmentStatus.WAITLISTED },
+      });
+
+      return {
+        summary: this.toSummary(updated, waitlistCount),
+        capacityIncreased: newCapacity > current.capacity,
+      };
+    });
+
+    // A capacity edit changes totalCapacity on every cached catalog page
+    // that includes this section's course, and unlike a seat count it is
+    // not self-correcting within the TTL from the admin's point of view.
+    await this.catalogCache.invalidate(`section ${sectionId} updated`);
 
     if (capacityIncreased) {
       await this.waitlist.enqueuePromotion(sectionId);

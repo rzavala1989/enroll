@@ -46,9 +46,9 @@ function makePrisma(opts: {
 }
 
 describe('CoursesService.getCourse', () => {
-  const waitlist = { computeRank: jest.fn() } as any;
+  const waitlist = { computeRanks: jest.fn() } as any;
 
-  beforeEach(() => waitlist.computeRank.mockReset());
+  beforeEach(() => waitlist.computeRanks.mockReset().mockResolvedValue(new Map()));
 
   it('throws NotFoundException when the course does not exist', async () => {
     const prisma = { course: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
@@ -83,11 +83,21 @@ describe('CoursesService.getCourse', () => {
     const prisma = makePrisma({
       sections: [section('sec-1'), section('sec-2'), section('sec-3')],
       viewerRows: [
-        { id: 'e-1', sectionId: 'sec-1', status: EnrollmentStatus.ENROLLED, waitlistPosition: null },
-        { id: 'e-2', sectionId: 'sec-2', status: EnrollmentStatus.WAITLISTED, waitlistPosition: 4 },
+        {
+          id: 'e-1',
+          sectionId: 'sec-1',
+          status: EnrollmentStatus.ENROLLED,
+          waitlistPosition: null,
+        },
+        {
+          id: 'e-2',
+          sectionId: 'sec-2',
+          status: EnrollmentStatus.WAITLISTED,
+          waitlistPosition: 4,
+        },
       ],
     });
-    waitlist.computeRank.mockResolvedValue(2);
+    waitlist.computeRanks.mockResolvedValue(new Map([['e-2', 2]]));
     const svc = new CoursesService(prisma, waitlist);
 
     const detail = await svc.getCourse(
@@ -107,12 +117,20 @@ describe('CoursesService.getCourse', () => {
       waitlistPosition: 2,
     });
     expect(detail.sections[2].viewerEnrollment).toBeNull();
-    expect(waitlist.computeRank).toHaveBeenCalledWith(prisma, 'sec-2', 4);
+    expect(waitlist.computeRanks).toHaveBeenCalledWith(prisma, [
+      { id: 'e-2', sectionId: 'sec-2', waitlistPosition: 4 },
+    ]);
     expect(prisma.enrollment.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           studentId: 'student-1',
-          status: { in: [EnrollmentStatus.ENROLLED, EnrollmentStatus.WAITLISTED, EnrollmentStatus.COMPLETED] },
+          status: {
+            in: [
+              EnrollmentStatus.ENROLLED,
+              EnrollmentStatus.WAITLISTED,
+              EnrollmentStatus.COMPLETED,
+            ],
+          },
         }),
       }),
     );
@@ -122,8 +140,18 @@ describe('CoursesService.getCourse', () => {
     const prisma = makePrisma({
       sections: [section('sec-1')],
       viewerRows: [
-        { id: 'e-old', sectionId: 'sec-1', status: EnrollmentStatus.COMPLETED, waitlistPosition: null },
-        { id: 'e-new', sectionId: 'sec-1', status: EnrollmentStatus.ENROLLED, waitlistPosition: null },
+        {
+          id: 'e-old',
+          sectionId: 'sec-1',
+          status: EnrollmentStatus.COMPLETED,
+          waitlistPosition: null,
+        },
+        {
+          id: 'e-new',
+          sectionId: 'sec-1',
+          status: EnrollmentStatus.ENROLLED,
+          waitlistPosition: null,
+        },
       ],
     });
     const svc = new CoursesService(prisma, waitlist);

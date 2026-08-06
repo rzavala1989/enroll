@@ -7,6 +7,13 @@ import { notFound, redirect } from 'next/navigation';
 export const API_URL = process.env.API_URL ?? 'http://localhost:3000';
 
 /**
+ * Version-qualified path prefix for server-to-server calls. Duplicated
+ * in next.config.ts, which cannot import from src/; the browser never
+ * sees it because the rewrite adds it.
+ */
+export const API_PREFIX = '/api/v1';
+
+/**
  * GET from the NestJS API inside a Server Component, forwarding the
  * incoming request's cookies.
  *
@@ -17,7 +24,7 @@ export const API_URL = process.env.API_URL ?? 'http://localhost:3000';
  */
 export async function apiGet<T>(path: string): Promise<T> {
   const cookieHeader = (await cookies()).toString();
-  const res = await fetch(`${API_URL}/api${path}`, {
+  const res = await fetch(`${API_URL}${API_PREFIX}${path}`, {
     headers: { cookie: cookieHeader },
     cache: 'no-store',
   });

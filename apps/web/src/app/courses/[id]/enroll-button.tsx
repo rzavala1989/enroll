@@ -37,6 +37,23 @@ export function EnrollButton({
   const [done, setDone] = useState<string | null>(() => initialDone(viewerEnrollment));
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Resync when the server's view of this section changes.
+   *
+   * `done` seeds from viewerEnrollment once and then lives on its own,
+   * so after router.refresh() picks up a waitlist promotion (or a
+   * change made in another tab) the button kept showing the stale
+   * label until the component happened to remount. Adjusting state
+   * during render on a prop change is the pattern already used in
+   * search-controls.tsx, and it beats an effect: no extra paint with
+   * the wrong value.
+   */
+  const [syncedFrom, setSyncedFrom] = useState(viewerEnrollment);
+  if (viewerEnrollment !== syncedFrom) {
+    setSyncedFrom(viewerEnrollment);
+    setDone(initialDone(viewerEnrollment));
+  }
+
   async function enroll() {
     setPending(true);
     setError(null);

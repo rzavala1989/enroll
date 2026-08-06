@@ -25,24 +25,23 @@
 
 import { faker } from '@faker-js/faker';
 import { PrismaClient, Role, Season } from '@prisma/client';
+import { ALL_DEPARTMENTS, Department } from '@enroll/shared';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
 faker.seed(42);
 
-const DEPARTMENTS = [
-  'CS',
-  'MATH',
-  'ENGL',
-  'PHYS',
-  'BIOL',
-  'HIST',
-  'PSYC',
-  'ECON',
-] as const;
-
-type Department = (typeof DEPARTMENTS)[number];
+/**
+ * The single source of truth, imported rather than restated.
+ *
+ * This list previously existed three times: here, in
+ * packages/shared/src/department.ts, and implicitly in the query DTO's
+ * validation against the Department enum. Nothing kept them in step, so
+ * adding a department to the catalog filter without adding it here
+ * produced a filter that always returns zero courses.
+ */
+const DEPARTMENTS = ALL_DEPARTMENTS;
 
 /** Code suffixes per level. Index in this array becomes the slot index. */
 const CODE_NUMBERS = {
@@ -301,7 +300,59 @@ function creditsForLevel(level: 100 | 200 | 300 | 400): number {
   return faker.helpers.arrayElement([3, 4, 4, 5]);
 }
 
+/** Hosts a destructive seed is allowed to run against without an explicit override. */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'postgres', 'db']);
+
+const SEED_CONFIRM_PHRASE = 'yes-wipe-everything';
+
+/**
+ * Refuse to run anywhere the wipe below could be a catastrophe.
+ *
+ * `main` deletes every enrollment, section, course, term, and user
+ * unconditionally. That is correct for a dev seed and one stray
+ * DATABASE_URL away from being the worst afternoon of somebody's
+ * career: nothing in the script previously looked at which database it
+ * was pointed at.
+ *
+ * Two independent gates, either of which is enough to stop it, plus one
+ * explicit override for the case where wiping a remote dev database is
+ * genuinely what you meant.
+ */
+function refuse(reason: string): never {
+  throw new Error(
+    `Refusing to seed: ${reason}.\n` +
+      `This seed deletes every user, course, section, term, and enrollment.\n` +
+      `If you are certain, re-run with SEED_CONFIRM=${SEED_CONFIRM_PHRASE}.`,
+  );
+}
+
+function assertSafeToWipe(): void {
+  if (process.env.SEED_CONFIRM === SEED_CONFIRM_PHRASE) {
+    console.warn(
+      `SEED_CONFIRM=${SEED_CONFIRM_PHRASE} set: wiping the target database on request.`,
+    );
+    return;
+  }
+
+  if (process.env.NODE_ENV === 'production') refuse('NODE_ENV is production');
+
+  const url = process.env.DATABASE_URL;
+  if (!url) refuse('DATABASE_URL is not set');
+
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return refuse('DATABASE_URL could not be parsed, so its host is unknown');
+  }
+
+  if (!LOCAL_HOSTS.has(host)) {
+    refuse(`database host "${host}" is not a known local host`);
+  }
+}
+
 async function main(): Promise<void> {
+  assertSafeToWipe();
   console.log('seeding...');
 
   await prisma.enrollment.deleteMany({});

@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -28,16 +29,11 @@ import { EnrollmentOwnershipGuard } from '../auth/guards/enrollment-ownership.gu
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { JwtPayload } from '../auth/types/jwt-payload.interface';
+import { actorFrom } from '../common/request-actor';
 import { EnrollDto, EnrollFailureDto, EnrollmentResultDto } from './dto/enroll.dto';
+import { ListMyEnrollmentsQueryDto } from './dto/list-my-enrollments-query.dto';
 import { MyEnrollmentDto } from './dto/my-enrollment.dto';
-import { EnrollmentService, RequestActor } from './enrollment.service';
-
-function actorFrom(req: Request): Pick<RequestActor, 'ipAddress' | 'userAgent'> {
-  return {
-    ipAddress: req.ip ?? null,
-    userAgent: req.get('user-agent') ?? null,
-  };
-}
+import { EnrollmentService } from './enrollment.service';
 
 @ApiTags('enrollment')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -53,8 +49,11 @@ export class EnrollmentController {
       'Includes every status: active rows (ENROLLED, WAITLISTED) and past rows (DROPPED, COMPLETED). The web app splits them client-side.',
   })
   @ApiOkResponse({ type: MyEnrollmentDto, isArray: true })
-  listMine(@CurrentUser() user: JwtPayload): Promise<MyEnrollmentDto[]> {
-    return this.enrollmentService.listMine(user.sub);
+  listMine(
+    @Query() query: ListMyEnrollmentsQueryDto,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<MyEnrollmentDto[]> {
+    return this.enrollmentService.listMine(user.sub, query);
   }
 
   @Post()
@@ -62,7 +61,7 @@ export class EnrollmentController {
   @ApiOperation({
     summary: 'Enroll the current student in a section',
     description:
-      'Atomic enroll under a row-level Section lock. A full section returns 201 with status WAITLISTED and the student\'s waitlist position. Returns 409 ALREADY_ENROLLED or ALREADY_WAITLISTED, 400 REGISTRATION_CLOSED, 404 SECTION_NOT_FOUND or STUDENT_NOT_FOUND.',
+      "Atomic enroll under a row-level Section lock. A full section returns 201 with status WAITLISTED and the student's waitlist position. Returns 409 ALREADY_ENROLLED or ALREADY_WAITLISTED, 400 REGISTRATION_CLOSED, 404 SECTION_NOT_FOUND or STUDENT_NOT_FOUND.",
   })
   @ApiCreatedResponse({ type: EnrollmentResultDto })
   @ApiConflictResponse({ type: EnrollFailureDto })
@@ -73,10 +72,7 @@ export class EnrollmentController {
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
   ): Promise<EnrollmentResultDto> {
-    return this.enrollmentService.enroll(body, user.sub, {
-      userId: user.sub,
-      ...actorFrom(req),
-    });
+    return this.enrollmentService.enroll(body, user.sub, actorFrom(req, user.sub));
   }
 
   @Patch(':id/drop')
@@ -88,10 +84,7 @@ export class EnrollmentController {
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
   ): Promise<EnrollmentResultDto> {
-    return this.enrollmentService.drop(id, user.sub, {
-      userId: user.sub,
-      ...actorFrom(req),
-    });
+    return this.enrollmentService.drop(id, user.sub, actorFrom(req, user.sub));
   }
 
   @Get(':id')
@@ -99,9 +92,7 @@ export class EnrollmentController {
   @UseGuards(EnrollmentOwnershipGuard)
   @ApiOperation({ summary: 'Get an enrollment, including waitlist position' })
   @ApiOkResponse({ type: EnrollmentResultDto })
-  getOne(
-    @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<EnrollmentResultDto> {
+  getOne(@Param('id', new ParseUUIDPipe()) id: string): Promise<EnrollmentResultDto> {
     return this.enrollmentService.findOne(id);
   }
 }

@@ -25,6 +25,13 @@ export interface CourseViewer {
   isStudent: boolean;
 }
 
+/**
+ * How many ranked matches to pull for the in-memory relevance sort.
+ * Deep pages of a very broad search fall outside it; the reported total
+ * is the true match count either way.
+ */
+const FTS_CANDIDATE_WINDOW = 500;
+
 /** Lower index wins when a student has several rows for one section. */
 const VIEWER_STATUS_PRECEDENCE: EnrollmentStatus[] = [
   EnrollmentStatus.ENROLLED,
@@ -57,9 +64,7 @@ export class CoursesService {
    * matching, and `ts_rank` orders results by relevance when sortBy is
    * `'relevance'` (the default whenever a search query is present).
    */
-  async listCourses(
-    query: ListCoursesQueryDto,
-  ): Promise<PaginatedCoursesResponseDto> {
+  async listCourses(query: ListCoursesQueryDto): Promise<PaginatedCoursesResponseDto> {
     const termId = query.termId ?? (await this.resolveActiveTermId());
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
@@ -73,32 +78,48 @@ export class CoursesService {
     // search, we skip this branch and use a plain Prisma findMany.
     let searchIds: string[] | undefined;
     let rankById: Map<string, number> | undefined;
+    let searchTotal: number | undefined;
 
     if (query.search && query.search.trim().length > 0) {
       const tsquery = this.toTsQuery(query.search);
+      const departmentFilter = codePrefix
+        ? Prisma.sql`AND c."code" LIKE ${codePrefix + '%'}`
+        : Prisma.empty;
 
-      // Pull a generous candidate window so the in-memory sort below has
-      // enough rows to paginate cleanly. 500 is plenty for a UCR-sized
-      // catalog and keeps the query time deterministic.
-      const ftsRows = await this.prisma.$queryRaw<FtsRow[]>(
-        Prisma.sql`
-          SELECT
-            c.id,
-            ts_rank(c."searchVector", to_tsquery('english', ${tsquery})) AS rank
-          FROM "Course" c
-          WHERE c."searchVector" @@ to_tsquery('english', ${tsquery})
-            ${
-              codePrefix
-                ? Prisma.sql`AND c."code" LIKE ${codePrefix + '%'}`
-                : Prisma.empty
-            }
-          ORDER BY rank DESC
-          LIMIT 500
-        `,
-      );
+      /**
+       * The candidate window bounds the in-memory relevance sort below.
+       * The match count must not be bounded with it: counting the
+       * windowed ids reported `total: 500` for a query matching 600
+       * courses, so the last pages of a broad search were unreachable
+       * and the page count was a lie. Count the whole match set,
+       * paginate the window.
+       */
+      const [ftsRows, [{ count }]] = await this.prisma.$transaction([
+        this.prisma.$queryRaw<FtsRow[]>(
+          Prisma.sql`
+            SELECT
+              c.id,
+              ts_rank(c."searchVector", to_tsquery('english', ${tsquery})) AS rank
+            FROM "Course" c
+            WHERE c."searchVector" @@ to_tsquery('english', ${tsquery})
+              ${departmentFilter}
+            ORDER BY rank DESC
+            LIMIT ${FTS_CANDIDATE_WINDOW}
+          `,
+        ),
+        this.prisma.$queryRaw<Array<{ count: bigint }>>(
+          Prisma.sql`
+            SELECT count(*)::bigint AS count
+            FROM "Course" c
+            WHERE c."searchVector" @@ to_tsquery('english', ${tsquery})
+              ${departmentFilter}
+          `,
+        ),
+      ]);
 
       searchIds = ftsRows.map((r) => r.id);
       rankById = new Map(ftsRows.map((r) => [r.id, Number(r.rank)]));
+      searchTotal = Number(count);
 
       if (searchIds.length === 0) {
         return { data: [], page, limit, total: 0, totalPages: 0 };
@@ -109,9 +130,7 @@ export class CoursesService {
     // the active term. Prisma resolves both in parallel via $transaction.
     const where: Prisma.CourseWhereInput = {
       ...(searchIds ? { id: { in: searchIds } } : {}),
-      ...(codePrefix && !searchIds
-        ? { code: { startsWith: codePrefix } }
-        : {}),
+      ...(codePrefix && !searchIds ? { code: { startsWith: codePrefix } } : {}),
     };
 
     const orderBy: Prisma.CourseOrderByWithRelationInput | undefined =
@@ -129,9 +148,7 @@ export class CoursesService {
         // For non-search results the DB does pagination. For search we
         // still need every matched id in order to relevance-sort below,
         // so we skip take/skip here and slice in memory.
-        ...(searchIds
-          ? {}
-          : { skip: (page - 1) * limit, take: limit }),
+        ...(searchIds ? {} : { skip: (page - 1) * limit, take: limit }),
         include: {
           sections: {
             where: { termId },
@@ -161,12 +178,17 @@ export class CoursesService {
       totalEnrolled: c.sections.reduce((sum, s) => sum + s.enrolledCount, 0),
     }));
 
+    // For a search, `total` from the id-restricted count is capped by
+    // the candidate window; the raw count of the full match set is the
+    // honest number.
+    const reportedTotal = searchTotal ?? total;
+
     return {
       data,
       page,
       limit,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / limit)),
+      total: reportedTotal,
+      totalPages: Math.max(1, Math.ceil(reportedTotal / limit)),
     };
   }
 
@@ -224,9 +246,7 @@ export class CoursesService {
       seatsAvailable: Math.max(0, s.capacity - s.enrolledCount),
       waitlistCount: waitlistCounts.get(s.id) ?? 0,
       waitlistCap: s.waitlistCap,
-      ...(viewerBySection
-        ? { viewerEnrollment: viewerBySection.get(s.id) ?? null }
-        : {}),
+      ...(viewerBySection ? { viewerEnrollment: viewerBySection.get(s.id) ?? null } : {}),
     }));
 
     return {
@@ -240,9 +260,7 @@ export class CoursesService {
   }
 
   /** WAITLISTED row count per section, one groupBy for the whole page. */
-  private async countWaitlisted(
-    sectionIds: string[],
-  ): Promise<Map<string, number>> {
+  private async countWaitlisted(sectionIds: string[]): Promise<Map<string, number>> {
     const counts = new Map<string, number>();
     if (sectionIds.length === 0) return counts;
     const grouped = await this.prisma.enrollment.groupBy({
@@ -289,25 +307,30 @@ export class CoursesService {
       }
     }
 
+    // Batched: a student waitlisted for several sections of one course
+    // used to cost a count query per section on the detail page.
+    const ranks = await this.waitlist.computeRanks(
+      this.prisma,
+      [...best.values()]
+        .filter(
+          (row) =>
+            row.status === EnrollmentStatus.WAITLISTED && row.waitlistPosition != null,
+        )
+        .map((row) => ({
+          id: row.id,
+          sectionId: row.sectionId,
+          waitlistPosition: row.waitlistPosition as number,
+        })),
+    );
+
     const out = new Map<string, ViewerEnrollmentDto>();
     for (const [sectionId, row] of best) {
-      let waitlistPosition: number | undefined;
-      if (
-        row.status === EnrollmentStatus.WAITLISTED &&
-        row.waitlistPosition != null
-      ) {
-        waitlistPosition = await this.waitlist.computeRank(
-          this.prisma,
-          sectionId,
-          row.waitlistPosition,
-        );
-      }
       out.set(sectionId, {
         enrollmentId: row.id,
         // Prisma's EnrollmentStatus is nominally distinct from the
         // shared enum despite identical string values; cast once here.
         status: row.status as string as SharedEnrollmentStatus,
-        waitlistPosition,
+        waitlistPosition: ranks.get(row.id),
       });
     }
     return out;
@@ -356,12 +379,3 @@ export class CoursesService {
     return tokens.join(' & ');
   }
 }
-
-// TODO(phase 4): when admin write endpoints land (Course/Section CRUD),
-// invalidate the CacheModule entries for `GET /api/courses` from those
-// handlers. Two options worth considering:
-//  1. Wildcard-evict any cache key whose query touches the mutated
-//     course/section (simplest; good for low write volume).
-//  2. Subscribe to a domain event (CourseUpdated, SectionUpdated) on
-//     a NestJS EventEmitter and let the cache layer listen.
-// For now the 5-minute TTL is the only invalidation mechanism.

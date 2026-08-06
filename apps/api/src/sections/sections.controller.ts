@@ -22,6 +22,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { JwtPayload } from '../auth/types/jwt-payload.interface';
+import { actorFrom } from '../common/request-actor';
 import { SectionSummaryDto, UpdateSectionDto } from './dto/update-section.dto';
 import { SectionsService } from './sections.service';
 
@@ -36,9 +37,7 @@ export class SectionsController {
   @ApiOperation({ summary: 'Section summary for the waitlist management view' })
   @ApiOkResponse({ type: SectionSummaryDto })
   @ApiNotFoundResponse({ description: 'SECTION_NOT_FOUND' })
-  summary(
-    @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<SectionSummaryDto> {
+  summary(@Param('id', new ParseUUIDPipe()) id: string): Promise<SectionSummaryDto> {
     return this.sections.getSummary(id);
   }
 
@@ -58,10 +57,6 @@ export class SectionsController {
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
   ): Promise<SectionSummaryDto> {
-    return this.sections.update(id, body, {
-      userId: user.sub,
-      ipAddress: req.ip ?? null,
-      userAgent: req.get('user-agent') ?? null,
-    });
+    return this.sections.update(id, body, actorFrom(req, user.sub));
   }
 }

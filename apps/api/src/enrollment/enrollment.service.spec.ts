@@ -3,6 +3,16 @@ import { EnrollmentStatus } from '@prisma/client';
 
 import { EnrollmentService } from './enrollment.service';
 
+import { stubMetrics } from '../common/metrics.stub';
+
+function makeEnrollmentService(
+  prisma: any,
+  audit: any,
+  waitlist: any,
+): EnrollmentService {
+  return new EnrollmentService(prisma, audit, waitlist, stubMetrics());
+}
+
 describe('EnrollmentService', () => {
   describe('enroll (waitlist cap)', () => {
     const past = new Date(Date.now() - 86_400_000);
@@ -19,9 +29,16 @@ describe('EnrollmentService', () => {
           }),
         },
         user: { findUnique: jest.fn().mockResolvedValue({ id: 'stu-1' }) },
-        $queryRaw: jest.fn().mockResolvedValue([
-          { id: 'sec-1', capacity: 20, enrolledCount: 20, waitlistCap: opts.waitlistCap },
-        ]),
+        $queryRaw: jest
+          .fn()
+          .mockResolvedValue([
+            {
+              id: 'sec-1',
+              capacity: 20,
+              enrolledCount: 20,
+              waitlistCap: opts.waitlistCap,
+            },
+          ]),
         enrollment: {
           findFirst: jest.fn().mockResolvedValue(null),
           count: jest.fn().mockResolvedValue(opts.waiting),
@@ -45,7 +62,7 @@ describe('EnrollmentService', () => {
         assignPosition: jest.fn().mockResolvedValue(6),
         computeRank: jest.fn().mockResolvedValue(6),
       } as any;
-      return new EnrollmentService(prisma, audit, waitlist);
+      return makeEnrollmentService(prisma, audit, waitlist);
     }
 
     const actor = { userId: 'stu-1', ipAddress: null, userAgent: null };
@@ -79,6 +96,46 @@ describe('EnrollmentService', () => {
 
       expect(result.status).toBe(EnrollmentStatus.WAITLISTED);
       expect(tx.enrollment.count).not.toHaveBeenCalled();
+    });
+
+    it('converges on the existing row when a student re-sends an enroll they already hold', async () => {
+      const tx = makeTx({ waitlistCap: 10, waiting: 5 });
+      tx.enrollment.findFirst.mockResolvedValue({
+        id: 'enr-existing',
+        studentId: 'stu-1',
+        sectionId: 'sec-1',
+        status: EnrollmentStatus.ENROLLED,
+        enrolledAt: new Date('2026-07-01T09:00:00Z'),
+        waitlistPosition: null,
+      });
+      const svc = makeService(tx);
+
+      // Registration-day clients retry. Answering 409 to a request whose
+      // desired state already holds is a support ticket, not a guard.
+      const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);
+
+      expect(result.id).toBe('enr-existing');
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
+    });
+
+    it('reports the live rank when re-sending a waitlist join', async () => {
+      const tx = makeTx({ waitlistCap: 10, waiting: 5 });
+      tx.enrollment.findFirst.mockResolvedValue({
+        id: 'enr-existing',
+        studentId: 'stu-1',
+        sectionId: 'sec-1',
+        status: EnrollmentStatus.WAITLISTED,
+        enrolledAt: new Date('2026-07-01T09:00:00Z'),
+        waitlistPosition: 12,
+      });
+      const svc = makeService(tx);
+
+      const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);
+
+      expect(result.status).toBe(EnrollmentStatus.WAITLISTED);
+      expect(result.waitlistPosition).toBe(6);
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
     });
 
     it('treats waitlistCap 0 as waitlist disabled', async () => {
@@ -121,14 +178,20 @@ describe('EnrollmentService', () => {
       const prisma = {
         enrollment: { findMany: jest.fn().mockResolvedValue(rows) },
       } as any;
-      const waitlist = { computeRank: jest.fn().mockResolvedValue(3) } as any;
-      const svc = new EnrollmentService(prisma, {} as any, waitlist);
+      const waitlist = {
+        computeRanks: jest.fn().mockResolvedValue(new Map([['e1', 3]])),
+      } as any;
+      const svc = makeEnrollmentService(prisma, {} as any, waitlist);
 
       const result = await svc.listMine('stu-1');
 
       expect(prisma.enrollment.findMany).toHaveBeenCalledWith({
         where: { studentId: 'stu-1' },
         orderBy: { enrolledAt: 'desc' },
+        // Bounded by default: the endpoint used to return a student's
+        // whole history unpaginated.
+        skip: 0,
+        take: 100,
         select: {
           id: true,
           status: true,
@@ -146,7 +209,11 @@ describe('EnrollmentService', () => {
           },
         },
       });
-      expect(waitlist.computeRank).toHaveBeenCalledWith(prisma, 'sec-1', 7);
+      // One batched window query for the whole page, not a count per row.
+      expect(waitlist.computeRanks).toHaveBeenCalledTimes(1);
+      expect(waitlist.computeRanks).toHaveBeenCalledWith(prisma, [
+        { id: 'e1', sectionId: 'sec-1', waitlistPosition: 7 },
+      ]);
       expect(result).toEqual([
         {
           id: 'e1',
@@ -183,7 +250,10 @@ describe('EnrollmentService', () => {
       const prisma = {
         enrollment: { findMany: jest.fn().mockResolvedValue([]) },
       } as any;
-      const svc = new EnrollmentService(prisma, {} as any, {} as any);
+      const waitlist = {
+        computeRanks: jest.fn().mockResolvedValue(new Map()),
+      } as any;
+      const svc = makeEnrollmentService(prisma, {} as any, waitlist);
 
       await expect(svc.listMine('stu-2')).resolves.toEqual([]);
     });
@@ -192,74 +262,137 @@ describe('EnrollmentService', () => {
   describe('drop', () => {
     const actor = { userId: 'stu-1', ipAddress: null, userAgent: null };
 
-    it('stamps droppedAt on an enrolled drop and frees the seat', async () => {
-      const tx = {
+    /**
+     * `findUnique` is called twice: once before the lock for the
+     * sectionId, once after for the authoritative status. Both return
+     * the same row here; `transitioned` drives the conditional update's
+     * matched-row count.
+     */
+    function makeDropTx(opts: {
+      status: EnrollmentStatus;
+      transitioned?: number;
+      waitlistPosition?: number | null;
+    }) {
+      return {
         enrollment: {
           findUnique: jest.fn().mockResolvedValue({
             id: 'e1',
             studentId: 'stu-1',
             sectionId: 'sec-1',
-            status: EnrollmentStatus.ENROLLED,
-            waitlistPosition: null,
-          }),
-          update: jest.fn().mockResolvedValue({
-            id: 'e1',
-            studentId: 'stu-1',
-            sectionId: 'sec-1',
-            status: EnrollmentStatus.DROPPED,
+            status: opts.status,
+            waitlistPosition: opts.waitlistPosition ?? null,
             enrolledAt: new Date('2026-06-01T10:00:00Z'),
-            droppedAt: new Date('2026-07-01T10:00:00Z'),
           }),
+          updateMany: jest.fn().mockResolvedValue({ count: opts.transitioned ?? 1 }),
         },
         section: {
           update: jest.fn().mockResolvedValue({ capacity: 20, enrolledCount: 19 }),
-        },
-        $queryRaw: jest.fn().mockResolvedValue([{ id: 'sec-1' }]),
-      } as any;
-      const prisma = { $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)) } as any;
-      const audit = { recordEvent: jest.fn().mockResolvedValue(undefined) } as any;
-      const waitlist = { enqueuePromotion: jest.fn().mockResolvedValue(undefined) } as any;
-      const svc = new EnrollmentService(prisma, audit, waitlist);
-
-      const result = await svc.drop('e1', 'stu-1', actor);
-
-      expect(result.droppedAt).toBe('2026-07-01T10:00:00.000Z');
-      expect(waitlist.enqueuePromotion).toHaveBeenCalledWith('sec-1');
-    });
-
-    it('stamps droppedAt when leaving the waitlist, without freeing a seat', async () => {
-      const tx = {
-        enrollment: {
-          findUnique: jest.fn().mockResolvedValue({
-            id: 'e1',
-            studentId: 'stu-1',
-            sectionId: 'sec-1',
-            status: EnrollmentStatus.WAITLISTED,
-            waitlistPosition: 3,
-          }),
-          update: jest.fn().mockResolvedValue({
-            id: 'e1',
-            studentId: 'stu-1',
-            sectionId: 'sec-1',
-            status: EnrollmentStatus.DROPPED,
-            enrolledAt: new Date('2026-06-01T10:00:00Z'),
-            droppedAt: new Date('2026-07-01T10:00:00Z'),
-          }),
-        },
-        section: {
           findUnique: jest.fn().mockResolvedValue({ capacity: 20, enrolledCount: 20 }),
         },
         $queryRaw: jest.fn().mockResolvedValue([{ id: 'sec-1' }]),
       } as any;
-      const prisma = { $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)) } as any;
+    }
+
+    function makeDropService(tx: any) {
+      const prisma = {
+        $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
+      } as any;
       const audit = { recordEvent: jest.fn().mockResolvedValue(undefined) } as any;
-      const waitlist = { enqueuePromotion: jest.fn().mockResolvedValue(undefined) } as any;
-      const svc = new EnrollmentService(prisma, audit, waitlist);
+      const waitlist = {
+        enqueuePromotion: jest.fn().mockResolvedValue(undefined),
+      } as any;
+      return { svc: makeEnrollmentService(prisma, audit, waitlist), audit, waitlist };
+    }
+
+    it('stamps droppedAt on an enrolled drop and frees the seat', async () => {
+      const tx = makeDropTx({ status: EnrollmentStatus.ENROLLED });
+      const { svc, waitlist } = makeDropService(tx);
 
       const result = await svc.drop('e1', 'stu-1', actor);
 
-      expect(result.droppedAt).toBe('2026-07-01T10:00:00.000Z');
+      expect(result.droppedAt).toEqual(expect.any(String));
+      expect(result.status).toBe(EnrollmentStatus.DROPPED);
+      expect(tx.section.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { enrolledCount: { decrement: 1 } } }),
+      );
+      expect(waitlist.enqueuePromotion).toHaveBeenCalledWith('sec-1');
+    });
+
+    it('locks the section before reading the status it acts on', async () => {
+      const order: string[] = [];
+      const tx = makeDropTx({ status: EnrollmentStatus.ENROLLED });
+      tx.$queryRaw.mockImplementation(async () => {
+        order.push('lock');
+        return [{ id: 'sec-1' }];
+      });
+      const original = tx.enrollment.findUnique;
+      tx.enrollment.findUnique = jest.fn().mockImplementation(async (args: any) => {
+        order.push('read');
+        return original(args);
+      });
+      const { svc } = makeDropService(tx);
+
+      await svc.drop('e1', 'stu-1', actor);
+
+      // Pre-lock read for the sectionId, then the lock, then the
+      // authoritative read that the transition is based on.
+      expect(order).toEqual(['read', 'lock', 'read']);
+    });
+
+    it('gates the transition on the status it read, so a racing drop cannot decrement twice', async () => {
+      const tx = makeDropTx({ status: EnrollmentStatus.ENROLLED, transitioned: 0 });
+      const { svc, waitlist } = makeDropService(tx);
+
+      const attempt = svc.drop('e1', 'stu-1', actor);
+
+      await expect(attempt).rejects.toBeInstanceOf(ConflictException);
+      await expect(attempt).rejects.toMatchObject({
+        response: { code: 'ALREADY_DROPPED' },
+      });
+      expect(tx.enrollment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'e1', status: EnrollmentStatus.ENROLLED },
+        data: expect.objectContaining({ status: EnrollmentStatus.DROPPED }),
+      });
+      expect(tx.section.update).not.toHaveBeenCalled();
       expect(waitlist.enqueuePromotion).not.toHaveBeenCalled();
+    });
+
+    it('stamps droppedAt when leaving the waitlist, without freeing a seat', async () => {
+      const tx = makeDropTx({
+        status: EnrollmentStatus.WAITLISTED,
+        waitlistPosition: 3,
+      });
+      const { svc, waitlist } = makeDropService(tx);
+
+      const result = await svc.drop('e1', 'stu-1', actor);
+
+      expect(result.droppedAt).toEqual(expect.any(String));
+      expect(tx.section.update).not.toHaveBeenCalled();
+      expect(waitlist.enqueuePromotion).not.toHaveBeenCalled();
+    });
+
+    it('writes exactly one audit row when two drops race the waitlist-leave branch', async () => {
+      const tx = makeDropTx({
+        status: EnrollmentStatus.WAITLISTED,
+        waitlistPosition: 3,
+        transitioned: 0,
+      });
+      const { svc, audit } = makeDropService(tx);
+
+      await expect(svc.drop('e1', 'stu-1', actor)).rejects.toMatchObject({
+        response: { code: 'ALREADY_DROPPED' },
+      });
+      expect(audit.recordEvent).not.toHaveBeenCalled();
+    });
+
+    it('rejects a drop of an already-terminal enrollment', async () => {
+      const tx = makeDropTx({ status: EnrollmentStatus.COMPLETED });
+      const { svc } = makeDropService(tx);
+
+      await expect(svc.drop('e1', 'stu-1', actor)).rejects.toMatchObject({
+        response: { code: 'ALREADY_DROPPED' },
+      });
+      expect(tx.enrollment.updateMany).not.toHaveBeenCalled();
     });
   });
 
@@ -280,7 +413,7 @@ describe('EnrollmentService', () => {
           }),
         },
       } as any;
-      const svc = new EnrollmentService(prisma, {} as any, {} as any);
+      const svc = makeEnrollmentService(prisma, {} as any, {} as any);
 
       const result = await svc.findOne('e1');
 

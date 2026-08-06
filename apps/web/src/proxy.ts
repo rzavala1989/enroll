@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3000';
 
+// Declared here rather than imported from lib/api/server, which pulls
+// in next/headers and does not belong in the proxy's runtime.
+const API_PREFIX = '/api/v1';
+
 // Single-flight refresh. Parallel requests (an RSC navigation plus a burst
 // of link prefetches) can all arrive without an access token but with the
 // same refresh token. The API rotates refresh tokens and treats reuse as
@@ -17,7 +21,7 @@ const REFRESH_RESULT_RETENTION_MS = 10_000;
  */
 async function refreshSession(refreshToken: string): Promise<string[] | null> {
   try {
-    const refreshed = await fetch(`${API_URL}/api/auth/refresh`, {
+    const refreshed = await fetch(`${API_URL}${API_PREFIX}/auth/refresh`, {
       method: 'POST',
       headers: { cookie: `refresh_token=${refreshToken}` },
     });
@@ -49,7 +53,10 @@ export async function proxy(request: NextRequest) {
       flight = refreshSession(refreshToken);
       inflightRefreshes.set(refreshToken, flight);
       flight.finally(() => {
-        setTimeout(() => inflightRefreshes.delete(refreshToken), REFRESH_RESULT_RETENTION_MS);
+        setTimeout(
+          () => inflightRefreshes.delete(refreshToken),
+          REFRESH_RESULT_RETENTION_MS,
+        );
       });
     }
     const setCookies = await flight;

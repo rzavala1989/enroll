@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The unit suites mock every client, but ConfigModule validates the
+  # environment at import time in anything that boots the app.
+  DATABASE_URL: postgresql://enroll:enroll@localhost:5432/enroll
+  REDIS_URL: redis://localhost:6379
+  JWT_ACCESS_SECRET: ci-only-secret-not-used-for-anything-real-32
+  NODE_ENV: test
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Everything downstream imports @enroll/shared from its dist.
+      - name: Build shared package
+        run: pnpm build:shared
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Typecheck API
+        run: pnpm --filter api exec tsc --noEmit
+
+      - name: Typecheck web
+        run: pnpm --filter web exec tsc --noEmit
+
+      - name: Lint API
+        run: pnpm --filter api lint
+
+      - name: Lint web
+        run: pnpm --filter web lint
+
+      - name: Test API
+        run: pnpm --filter api test
+
+      - name: Test web
+        run: pnpm --filter web test
+
+      - name: Build API
+        run: pnpm --filter api build
+
+      - name: Build web
+        run: pnpm --filter web build
+
+  # Guards the generated-column workaround documented in schema.prisma.
+  # `prisma migrate dev` emits a DROP INDEX on Course_searchVector_idx
+  # every time it diffs Course, and applying it silently removes the GIN
+  # index that catalog search depends on. scripts/migrate-safe.sh strips
+  # those lines; this fails the build if one is ever committed anyway.
+  migration-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject searchVector drift in migrations
+        run: |
+          if grep -rn -E 'DROP INDEX "Course_searchVector_idx"|ALTER COLUMN "searchVector" DROP DEFAULT' \
+               apps/api/prisma/migrations; then
+            echo "::error::A migration drops the Course FTS index or default."
+            echo "Use 'pnpm db:migrate:safe <name>' instead of 'prisma migrate dev'."
+            exit 1
+          fi
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:shared
+      - run: pnpm db:generate
+      # Testcontainers brings up its own Postgres against the runner's
+      # Docker daemon, so no service container is declared here.
+      - name: Concurrency invariants against real Postgres
+        run: pnpm --filter api test:integration

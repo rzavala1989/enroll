@@ -9,16 +9,13 @@ import { EnrollmentStatus } from '@prisma/client';
 import { AuditAction } from '@enroll/shared';
 
 import { AuditService } from '../audit/audit.service';
+import { MetricsService } from '../common/metrics.service';
+import type { RequestActor } from '../common/request-actor';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import { EnrollDto, EnrollmentResultDto } from './dto/enroll.dto';
+import { ListMyEnrollmentsQueryDto } from './dto/list-my-enrollments-query.dto';
 import { MyEnrollmentDto } from './dto/my-enrollment.dto';
-
-export interface RequestActor {
-  userId: string;
-  ipAddress: string | null;
-  userAgent: string | null;
-}
 
 @Injectable()
 export class EnrollmentService {
@@ -28,6 +25,7 @@ export class EnrollmentService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly waitlist: WaitlistService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /**
@@ -82,14 +80,10 @@ export class EnrollmentService {
         });
       }
       const now = new Date();
-      if (
-        now < section.term.registrationOpens ||
-        now > section.term.registrationCloses
-      ) {
+      if (now < section.term.registrationOpens || now > section.term.registrationCloses) {
         throw new BadRequestException({
           code: 'REGISTRATION_CLOSED',
-          message:
-            'Registration is not currently open for the section\'s term.',
+          message: "Registration is not currently open for the section's term.",
         });
       }
 
@@ -131,26 +125,61 @@ export class EnrollmentService {
         });
       }
 
-      // Active-row check: a student is enrolled, waitlisted, or neither for a section.
+      /**
+       * Active-row check: a student is enrolled, waitlisted, or neither
+       * for a section.
+       *
+       * A repeat request for a section the student already holds
+       * converges on the existing row instead of failing. Registration
+       * day clients retry, double-click, and get re-mounted, and
+       * answering "409, you already succeeded" to a request whose
+       * desired state is already true generates support tickets rather
+       * than preventing anything. The partial unique index on
+       * (studentId, sectionId) WHERE status IN ('ENROLLED','WAITLISTED')
+       * is what actually makes a double row impossible; this branch
+       * just decides how to report the no-op.
+       */
       const active = await tx.enrollment.findFirst({
         where: {
           studentId: userId,
           sectionId: input.sectionId,
           status: { in: [EnrollmentStatus.ENROLLED, EnrollmentStatus.WAITLISTED] },
         },
-        select: { status: true },
+        select: {
+          id: true,
+          studentId: true,
+          sectionId: true,
+          status: true,
+          enrolledAt: true,
+          waitlistPosition: true,
+        },
       });
-      if (active?.status === EnrollmentStatus.ENROLLED) {
-        throw new ConflictException({
-          code: 'ALREADY_ENROLLED',
-          message: 'Student is already enrolled in this section.',
+      if (active) {
+        this.metrics.enrollOutcomes.inc({
+          outcome:
+            active.status === EnrollmentStatus.ENROLLED
+              ? 'already_enrolled'
+              : 'already_waitlisted',
         });
-      }
-      if (active?.status === EnrollmentStatus.WAITLISTED) {
-        throw new ConflictException({
-          code: 'ALREADY_WAITLISTED',
-          message: 'Student is already on the waitlist for this section.',
-        });
+        return {
+          id: active.id,
+          studentId: active.studentId,
+          sectionId: active.sectionId,
+          status: active.status,
+          enrolledAt: active.enrolledAt.toISOString(),
+          sectionEnrolledCount: live.enrolledCount,
+          sectionCapacity: live.capacity,
+          ...(active.status === EnrollmentStatus.WAITLISTED &&
+          active.waitlistPosition != null
+            ? {
+                waitlistPosition: await this.waitlist.computeRank(
+                  tx,
+                  input.sectionId,
+                  active.waitlistPosition,
+                ),
+              }
+            : {}),
+        };
       }
 
       // Seat available means enroll. Otherwise, waitlist.
@@ -161,7 +190,13 @@ export class EnrollmentService {
             sectionId: input.sectionId,
             status: EnrollmentStatus.ENROLLED,
           },
-          select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true },
+          select: {
+            id: true,
+            studentId: true,
+            sectionId: true,
+            status: true,
+            enrolledAt: true,
+          },
         });
 
         const updated = await tx.section.update({
@@ -178,6 +213,7 @@ export class EnrollmentService {
           after: { sectionId: enrollment.sectionId, status: enrollment.status },
         });
 
+        this.metrics.enrollOutcomes.inc({ outcome: 'enrolled' });
         return {
           ...enrollment,
           enrolledAt: enrollment.enrolledAt.toISOString(),
@@ -197,6 +233,7 @@ export class EnrollmentService {
           },
         });
         if (waiting >= live.waitlistCap) {
+          this.metrics.enrollOutcomes.inc({ outcome: 'section_full' });
           throw new ConflictException({
             code: 'SECTION_FULL',
             message: 'Section and its waitlist are full.',
@@ -213,7 +250,13 @@ export class EnrollmentService {
           status: EnrollmentStatus.WAITLISTED,
           waitlistPosition: position,
         },
-        select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true },
+        select: {
+          id: true,
+          studentId: true,
+          sectionId: true,
+          status: true,
+          enrolledAt: true,
+        },
       });
       const rank = await this.waitlist.computeRank(tx, input.sectionId, position);
 
@@ -222,9 +265,14 @@ export class EnrollmentService {
         actor: { userId, ipAddress: actor.ipAddress, userAgent: actor.userAgent },
         target: { type: 'enrollment', id: enrollment.id },
         before: null,
-        after: { sectionId: enrollment.sectionId, status: enrollment.status, waitlistPosition: position },
+        after: {
+          sectionId: enrollment.sectionId,
+          status: enrollment.status,
+          waitlistPosition: position,
+        },
       });
 
+      this.metrics.enrollOutcomes.inc({ outcome: 'waitlisted' });
       return {
         ...enrollment,
         enrolledAt: enrollment.enrolledAt.toISOString(),
@@ -239,13 +287,24 @@ export class EnrollmentService {
    * Drop an active enrollment.
    *
    * Pattern mirrors enroll():
-   *   1. Lock the Section row.
-   *   2. Verify the enrollment exists, belongs to the requested student,
-   *      and is currently ENROLLED.
-   *   3. Update status to DROPPED, stamp droppedAt, decrement counter.
+   *   1. Read the row once, unlocked, purely to learn its sectionId.
+   *   2. Lock the Section row with SELECT ... FOR UPDATE.
+   *   3. Re-read the enrollment status *under that lock*, and perform
+   *      the transition with a conditional updateMany whose WHERE
+   *      carries the expected status.
+   *
+   * Steps 2 and 3 are what make concurrent drops of the same row safe.
+   * An unlocked status read followed by an unconditional update lets
+   * two transactions each see ENROLLED, serialize on the lock, and both
+   * write DROPPED and both decrement enrolledCount, corrupting the
+   * counter by one and manufacturing a phantom free seat that triggers
+   * a bogus waitlist promotion. Re-reading under the lock closes the
+   * window; the status predicate on updateMany is the second line of
+   * defense, and its zero-row result is the idempotent exit.
    *
    * The denormalized counter never goes negative because the CHECK
-   * `enrolledCount >= 0` constraint on Section blocks it.
+   * `enrolledCount >= 0` constraint on Section blocks it. That
+   * constraint is a backstop, not the mechanism.
    */
   async drop(
     enrollmentId: string,
@@ -255,81 +314,113 @@ export class EnrollmentService {
     const { result, freedSeatSectionId } = await this.prisma.$transaction(async (tx) => {
       const enrollment = await tx.enrollment.findUnique({
         where: { id: enrollmentId },
-        select: { id: true, studentId: true, sectionId: true, status: true, waitlistPosition: true },
+        select: { id: true, sectionId: true },
       });
       if (!enrollment) {
         throw new NotFoundException('Enrollment not found.');
       }
 
-      // Leaving the waitlist: no counter change, no seat freed, no job.
-      if (enrollment.status === EnrollmentStatus.WAITLISTED) {
-        await tx.$queryRaw`
-          SELECT id FROM "Section" WHERE id = ${enrollment.sectionId}::uuid FOR UPDATE
-        `;
-        const left = await tx.enrollment.update({
-          where: { id: enrollment.id },
-          data: { status: EnrollmentStatus.DROPPED, droppedAt: new Date(), waitlistPosition: null },
-          select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true, droppedAt: true },
-        });
-        const section = await tx.section.findUnique({
-          where: { id: enrollment.sectionId },
-          select: { capacity: true, enrolledCount: true },
-        });
-        await this.audit.recordEvent(tx, {
-          action: AuditAction.ENROLLMENT_WAITLIST_LEFT,
-          actor: { userId: actor.userId, ipAddress: actor.ipAddress, userAgent: actor.userAgent },
-          target: { type: 'enrollment', id: left.id },
-          before: { status: EnrollmentStatus.WAITLISTED, waitlistPosition: enrollment.waitlistPosition },
-          after: { status: EnrollmentStatus.DROPPED },
-        });
-        return {
-          result: {
-            ...left,
-            enrolledAt: left.enrolledAt.toISOString(),
-            droppedAt: left.droppedAt?.toISOString(),
-            sectionEnrolledCount: section?.enrolledCount ?? 0,
-            sectionCapacity: section?.capacity ?? 0,
-          } as EnrollmentResultDto,
-          freedSeatSectionId: null as string | null,
-        };
-      }
-
-      if (enrollment.status !== EnrollmentStatus.ENROLLED) {
-        throw new BadRequestException(
-          `Cannot drop an enrollment in status ${enrollment.status}.`,
-        );
-      }
-
-      // Dropping an enrolled student frees a seat.
+      // Everything below runs under the section lock, so a concurrent
+      // drop, promotion, or capacity edit on this section is serialized
+      // behind us rather than interleaved with us.
       await tx.$queryRaw`
         SELECT id FROM "Section" WHERE id = ${enrollment.sectionId}::uuid FOR UPDATE
       `;
-      const dropped = await tx.enrollment.update({
-        where: { id: enrollment.id },
-        data: { status: EnrollmentStatus.DROPPED, droppedAt: new Date() },
-        select: { id: true, studentId: true, sectionId: true, status: true, enrolledAt: true, droppedAt: true },
+
+      // Authoritative status read: the pre-lock findUnique above may
+      // already be stale (a promotion could have flipped WAITLISTED to
+      // ENROLLED while we waited for the lock).
+      const current = await tx.enrollment.findUnique({
+        where: { id: enrollmentId },
+        select: {
+          id: true,
+          studentId: true,
+          sectionId: true,
+          status: true,
+          waitlistPosition: true,
+          enrolledAt: true,
+        },
       });
-      const updatedSection = await tx.section.update({
-        where: { id: enrollment.sectionId },
-        data: { enrolledCount: { decrement: 1 } },
-        select: { capacity: true, enrolledCount: true },
+      if (!current) {
+        throw new NotFoundException('Enrollment not found.');
+      }
+
+      if (
+        current.status !== EnrollmentStatus.ENROLLED &&
+        current.status !== EnrollmentStatus.WAITLISTED
+      ) {
+        throw new BadRequestException({
+          code: 'ALREADY_DROPPED',
+          message: `Cannot drop an enrollment in status ${current.status}.`,
+        });
+      }
+
+      const fromStatus = current.status;
+      const droppedAt = new Date();
+
+      // Conditional transition. count === 0 means another transaction
+      // moved this row out of `fromStatus` after our read, which the
+      // lock should already prevent; treat it as an idempotent no-op
+      // rather than decrementing a counter a second time.
+      const transitioned = await tx.enrollment.updateMany({
+        where: { id: enrollmentId, status: fromStatus },
+        data: {
+          status: EnrollmentStatus.DROPPED,
+          droppedAt,
+          waitlistPosition: null,
+        },
       });
+      if (transitioned.count === 0) {
+        throw new ConflictException({
+          code: 'ALREADY_DROPPED',
+          message: 'This enrollment was already dropped.',
+        });
+      }
+
+      // Leaving the waitlist frees no seat, so no counter change and no
+      // promotion job. Dropping an enrolled student does both.
+      const freedSeat = fromStatus === EnrollmentStatus.ENROLLED;
+      const section = freedSeat
+        ? await tx.section.update({
+            where: { id: current.sectionId },
+            data: { enrolledCount: { decrement: 1 } },
+            select: { capacity: true, enrolledCount: true },
+          })
+        : await tx.section.findUnique({
+            where: { id: current.sectionId },
+            select: { capacity: true, enrolledCount: true },
+          });
+
       await this.audit.recordEvent(tx, {
-        action: AuditAction.ENROLLMENT_DROPPED,
-        actor: { userId: actor.userId, ipAddress: actor.ipAddress, userAgent: actor.userAgent },
-        target: { type: 'enrollment', id: dropped.id },
-        before: { sectionId: dropped.sectionId, status: enrollment.status },
-        after: { sectionId: dropped.sectionId, status: dropped.status },
+        action: freedSeat
+          ? AuditAction.ENROLLMENT_DROPPED
+          : AuditAction.ENROLLMENT_WAITLIST_LEFT,
+        actor: {
+          userId: actor.userId,
+          ipAddress: actor.ipAddress,
+          userAgent: actor.userAgent,
+        },
+        target: { type: 'enrollment', id: current.id },
+        before: freedSeat
+          ? { sectionId: current.sectionId, status: fromStatus }
+          : { status: fromStatus, waitlistPosition: current.waitlistPosition },
+        after: freedSeat
+          ? { sectionId: current.sectionId, status: EnrollmentStatus.DROPPED }
+          : { status: EnrollmentStatus.DROPPED },
       });
+
       return {
         result: {
-          ...dropped,
-          enrolledAt: dropped.enrolledAt.toISOString(),
-          droppedAt: dropped.droppedAt?.toISOString(),
-          sectionEnrolledCount: updatedSection.enrolledCount,
-          sectionCapacity: updatedSection.capacity,
+          id: current.id,
+          studentId: current.studentId,
+          sectionId: current.sectionId,
+          status: EnrollmentStatus.DROPPED,
+          enrolledAt: current.enrolledAt.toISOString(),
+          droppedAt: droppedAt.toISOString(),
+          sectionEnrolledCount: section?.enrolledCount ?? 0,
+          sectionCapacity: section?.capacity ?? 0,
         } as EnrollmentResultDto,
-        freedSeatSectionId: enrollment.sectionId as string | null,
+        freedSeatSectionId: (freedSeat ? current.sectionId : null) as string | null,
       };
     });
 
@@ -339,10 +430,35 @@ export class EnrollmentService {
     return result;
   }
 
-  async listMine(studentId: string): Promise<MyEnrollmentDto[]> {
+  /**
+   * A student's enrollments, newest first.
+   *
+   * Bounded now. The response is still a bare array rather than a
+   * paginated envelope: the web app splits the rows into active and
+   * past client-side and there is no external consumer to migrate, so
+   * changing the shape would cost more than it buys. The limit is what
+   * matters, and 100 rows covers any real student's whole career.
+   */
+  async listMine(
+    studentId: string,
+    query: ListMyEnrollmentsQueryDto = {},
+  ): Promise<MyEnrollmentDto[]> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 100;
+    const statuses = query.status
+      ? Array.isArray(query.status)
+        ? query.status
+        : [query.status]
+      : undefined;
+
     const rows = await this.prisma.enrollment.findMany({
-      where: { studentId },
+      where: {
+        studentId,
+        ...(statuses ? { status: { in: statuses } } : {}),
+      },
       orderBy: { enrolledAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
       select: {
         id: true,
         status: true,
@@ -361,27 +477,33 @@ export class EnrollmentService {
       },
     });
 
-    return Promise.all(
-      rows.map(async (row) => {
-        let waitlistPosition: number | undefined;
-        if (row.status === EnrollmentStatus.WAITLISTED && row.waitlistPosition != null) {
-          waitlistPosition = await this.waitlist.computeRank(
-            this.prisma,
-            row.section.id,
-            row.waitlistPosition,
-          );
-        }
-        const { course, ...section } = row.section;
-        return {
+    // One window query for every waitlisted row on the page, instead of
+    // a count per row.
+    const ranks = await this.waitlist.computeRanks(
+      this.prisma,
+      rows
+        .filter(
+          (row) =>
+            row.status === EnrollmentStatus.WAITLISTED && row.waitlistPosition != null,
+        )
+        .map((row) => ({
           id: row.id,
-          status: row.status,
-          enrolledAt: row.enrolledAt.toISOString(),
-          waitlistPosition,
-          section,
-          course,
-        };
-      }),
+          sectionId: row.section.id,
+          waitlistPosition: row.waitlistPosition as number,
+        })),
     );
+
+    return rows.map((row) => {
+      const { course, ...section } = row.section;
+      return {
+        id: row.id,
+        status: row.status,
+        enrolledAt: row.enrolledAt.toISOString(),
+        waitlistPosition: ranks.get(row.id),
+        section,
+        course,
+      };
+    });
   }
 
   async findOne(enrollmentId: string): Promise<EnrollmentResultDto> {
@@ -403,7 +525,11 @@ export class EnrollmentService {
 
     let waitlistPosition: number | undefined;
     if (e.status === EnrollmentStatus.WAITLISTED && e.waitlistPosition != null) {
-      waitlistPosition = await this.waitlist.computeRank(this.prisma, e.sectionId, e.waitlistPosition);
+      waitlistPosition = await this.waitlist.computeRank(
+        this.prisma,
+        e.sectionId,
+        e.waitlistPosition,
+      );
     }
 
     return {

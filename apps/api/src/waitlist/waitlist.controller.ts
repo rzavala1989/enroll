@@ -22,6 +22,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { JwtPayload } from '../auth/types/jwt-payload.interface';
+import { actorFrom } from '../common/request-actor';
 import { ReorderWaitlistDto } from './dto/reorder-waitlist.dto';
 import { WaitlistEntryDto } from './dto/waitlist-entry.dto';
 import { WaitlistService } from './waitlist.service';
@@ -56,10 +57,6 @@ export class WaitlistController {
     @CurrentUser() user: JwtPayload,
     @Req() req: Request,
   ): Promise<WaitlistEntryDto[]> {
-    return this.waitlist.reorder(id, body.orderedEnrollmentIds, {
-      userId: user.sub,
-      ipAddress: req.ip ?? null,
-      userAgent: req.get('user-agent') ?? null,
-    });
+    return this.waitlist.reorder(id, body.orderedEnrollmentIds, actorFrom(req, user.sub));
   }
 }

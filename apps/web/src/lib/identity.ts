@@ -2,7 +2,7 @@ import { cache } from 'react';
 import { cookies } from 'next/headers';
 import type { AuthUser } from '@enroll/shared';
 
-import { API_URL } from './api/server';
+import { API_PREFIX, API_URL } from './api/server';
 
 /**
  * Who is logged in, or null. Does not redirect: the layout renders for
@@ -13,7 +13,7 @@ export const getIdentity = cache(async (): Promise<AuthUser | null> => {
   const cookieStore = await cookies();
   if (!cookieStore.get('access_token')?.value) return null;
 
-  const res = await fetch(`${API_URL}/api/auth/me`, {
+  const res = await fetch(`${API_URL}${API_PREFIX}/auth/me`, {
     headers: { cookie: cookieStore.toString() },
     cache: 'no-store',
   });

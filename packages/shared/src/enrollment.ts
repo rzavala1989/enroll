@@ -44,11 +44,16 @@ export interface EnrollmentResult {
  * SECTION_FULL means every seat is taken AND the waitlist is at its
  * cap; a full section with waitlist space returns 201 WAITLISTED
  * instead.
+ *
+ * ALREADY_DROPPED comes from the drop path, not the enroll path: the
+ * conditional status transition matched no row, meaning a racing
+ * request (a double-click, a retry) already dropped this enrollment.
  */
 export type EnrollFailureCode =
   | 'SECTION_FULL'
   | 'ALREADY_ENROLLED'
   | 'ALREADY_WAITLISTED'
+  | 'ALREADY_DROPPED'
   | 'REGISTRATION_CLOSED'
   | 'SECTION_NOT_FOUND'
   | 'STUDENT_NOT_FOUND';
@@ -73,6 +78,22 @@ export interface MyEnrollmentCourse {
   code: string;
   title: string;
   credits: number;
+}
+
+/**
+ * Query parameters for GET /api/enrollments.
+ *
+ * All optional. Omitting everything returns the newest 100 rows of the
+ * student's history, which is the whole thing for anyone short of a
+ * career student.
+ */
+export interface ListMyEnrollmentsQuery {
+  /** Restrict to these statuses. */
+  status?: EnrollmentStatus | EnrollmentStatus[];
+  /** 1-indexed page. Defaults to 1. */
+  page?: number;
+  /** Page size. Defaults to 100, capped at 200. */
+  limit?: number;
 }
 
 /** Row in GET /api/enrollments (the current student's enrollments). */

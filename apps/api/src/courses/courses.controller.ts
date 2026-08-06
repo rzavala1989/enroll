@@ -1,4 +1,4 @@
-import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 import {
   Controller,
   Get,
@@ -8,21 +8,13 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import {
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../auth/types/jwt-payload.interface';
 import { CoursesService } from './courses.service';
-import {
-  CourseDetailDto,
-  ListCoursesQueryDto,
-  PaginatedCoursesResponseDto,
-} from './dto';
+import { CourseDetailDto, ListCoursesQueryDto, PaginatedCoursesResponseDto } from './dto';
 
 @ApiTags('courses')
 @UseGuards(JwtAuthGuard)
@@ -34,18 +26,16 @@ export class CoursesController {
    * List courses with filter, search, and pagination.
    *
    * The cache key is derived from the full query string by NestJS, so
-   * different filter combinations get distinct entries. TTL is 5
-   * minutes; admin write endpoints in a future phase should evict
-   * relevant entries (see TODO at the bottom of CoursesService).
+   * different filter combinations get distinct entries. TTL comes from
+   * CATALOG_CACHE_TTL_MS (15s by default), short because the rows carry
+   * live seat counts; admin capacity edits evict immediately via
+   * CatalogCacheService.
    */
   @Get()
   @UseInterceptors(CacheInterceptor)
-  @CacheTTL(300_000)
   @ApiOperation({ summary: 'List courses' })
   @ApiOkResponse({ type: PaginatedCoursesResponseDto })
-  list(
-    @Query() query: ListCoursesQueryDto,
-  ): Promise<PaginatedCoursesResponseDto> {
+  list(@Query() query: ListCoursesQueryDto): Promise<PaginatedCoursesResponseDto> {
     return this.coursesService.listCourses(query);
   }
 

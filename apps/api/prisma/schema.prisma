@@ -158,7 +158,17 @@ model Enrollment {
 
   @@index([studentId])
   @@index([sectionId])
-  @@index([status])
+  // The waitlist read path is always
+  // `WHERE sectionId = ? AND status = 'WAITLISTED' ORDER BY waitlistPosition`.
+  // A partial index on exactly that predicate is a fraction of the size
+  // of the full one and covers promotion, ordering, and rank counting.
+  // Declared in SQL (see 20260806..._waitlist_index_tuning) because
+  // Prisma cannot express a partial index; kept here so the shape is
+  // visible next to the model.
+  //
+  // Dropped in the same migration: @@index([status]). Four distinct
+  // values over the whole table means the planner will take a
+  // sequential scan every time, so it was pure write cost.
   @@index([sectionId, waitlistPosition])
 }
 

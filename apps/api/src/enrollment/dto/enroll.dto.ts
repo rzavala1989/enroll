@@ -18,8 +18,6 @@ export class EnrollDto {
   sectionId!: string;
 }
 
-export class DropDto {}
-
 export class EnrollmentResultDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
@@ -38,7 +36,8 @@ export class EnrollmentResultDto {
 
   @ApiProperty({
     required: false,
-    description: '1-based position on the section waitlist; absent unless status is WAITLISTED.',
+    description:
+      '1-based position on the section waitlist; absent unless status is WAITLISTED.',
   })
   waitlistPosition?: number;
 
@@ -48,10 +47,16 @@ export class EnrollmentResultDto {
   @ApiProperty()
   sectionCapacity!: number;
 
-  @ApiProperty({ required: false, description: 'ISO 8601; present only once the enrollment is DROPPED.' })
+  @ApiProperty({
+    required: false,
+    description: 'ISO 8601; present only once the enrollment is DROPPED.',
+  })
   droppedAt?: string;
 
-  @ApiProperty({ required: false, description: 'ISO 8601; present only once the enrollment is COMPLETED.' })
+  @ApiProperty({
+    required: false,
+    description: 'ISO 8601; present only once the enrollment is COMPLETED.',
+  })
   completedAt?: string;
 }
 
@@ -61,6 +66,7 @@ export class EnrollFailureDto {
       'SECTION_FULL',
       'ALREADY_ENROLLED',
       'ALREADY_WAITLISTED',
+      'ALREADY_DROPPED',
       'REGISTRATION_CLOSED',
       'SECTION_NOT_FOUND',
       'STUDENT_NOT_FOUND',

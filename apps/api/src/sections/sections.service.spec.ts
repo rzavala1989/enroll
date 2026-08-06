@@ -3,6 +3,12 @@ import { AuditAction } from '@enroll/shared';
 
 import { SectionsService } from './sections.service';
 
+/** The catalog cache is instrumentation from these specs' point of view. */
+function makeSectionsService(prisma: any, audit: any, waitlist: any): SectionsService {
+  const catalogCache = { invalidate: jest.fn().mockResolvedValue(undefined) } as any;
+  return new SectionsService(prisma, audit, waitlist, catalogCache);
+}
+
 const ACTOR = { userId: 'admin-1', ipAddress: '127.0.0.1', userAgent: 'jest' };
 
 function makeTx(opts: {
@@ -40,13 +46,15 @@ describe('SectionsService.update', () => {
   });
 
   it('rejects an empty body with NO_FIELDS', async () => {
-    const svc = new SectionsService({} as any, audit, waitlist);
-    await expect(svc.update('sec-1', {}, ACTOR)).rejects.toBeInstanceOf(BadRequestException);
+    const svc = makeSectionsService({} as any, audit, waitlist);
+    await expect(svc.update('sec-1', {}, ACTOR)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('404s when the section does not exist', async () => {
     const tx = makeTx({ locked: null });
-    const svc = new SectionsService(makePrisma(tx), audit, waitlist);
+    const svc = makeSectionsService(makePrisma(tx), audit, waitlist);
     await expect(svc.update('sec-1', { capacity: 25 }, ACTOR)).rejects.toBeInstanceOf(
       NotFoundException,
     );
@@ -54,7 +62,7 @@ describe('SectionsService.update', () => {
 
   it('rejects a capacity below the current enrolledCount', async () => {
     const tx = makeTx({ locked: { capacity: 20, enrolledCount: 18, waitlistCap: null } });
-    const svc = new SectionsService(makePrisma(tx), audit, waitlist);
+    const svc = makeSectionsService(makePrisma(tx), audit, waitlist);
     await expect(svc.update('sec-1', { capacity: 10 }, ACTOR)).rejects.toBeInstanceOf(
       BadRequestException,
     );
@@ -67,7 +75,7 @@ describe('SectionsService.update', () => {
       locked: { capacity: 20, enrolledCount: 20, waitlistCap: 10 },
       waitlistCount: 4,
     });
-    const svc = new SectionsService(makePrisma(tx), audit, waitlist);
+    const svc = makeSectionsService(makePrisma(tx), audit, waitlist);
 
     const summary = await svc.update('sec-1', { capacity: 25 }, ACTOR);
 
@@ -91,7 +99,7 @@ describe('SectionsService.update', () => {
 
   it('does not enqueue promotion when capacity stays or drops', async () => {
     const tx = makeTx({ locked: { capacity: 20, enrolledCount: 10, waitlistCap: null } });
-    const svc = new SectionsService(makePrisma(tx), audit, waitlist);
+    const svc = makeSectionsService(makePrisma(tx), audit, waitlist);
 
     await svc.update('sec-1', { capacity: 15 }, ACTOR);
     await svc.update('sec-1', { waitlistCap: 3 }, ACTOR);
@@ -101,7 +109,7 @@ describe('SectionsService.update', () => {
 
   it('clears the waitlist cap back to unlimited with an explicit null', async () => {
     const tx = makeTx({ locked: { capacity: 20, enrolledCount: 10, waitlistCap: 5 } });
-    const svc = new SectionsService(makePrisma(tx), audit, waitlist);
+    const svc = makeSectionsService(makePrisma(tx), audit, waitlist);
 
     const summary = await svc.update('sec-1', { waitlistCap: null }, ACTOR);
 
@@ -115,7 +123,7 @@ describe('SectionsService.update', () => {
 describe('SectionsService.getSummary', () => {
   it('404s when the section does not exist', async () => {
     const prisma = { section: { findUnique: jest.fn().mockResolvedValue(null) } } as any;
-    const svc = new SectionsService(prisma, {} as any, {} as any);
+    const svc = makeSectionsService(prisma, {} as any, {} as any);
     await expect(svc.getSummary('sec-1')).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -134,7 +142,7 @@ describe('SectionsService.getSummary', () => {
       },
       enrollment: { count: jest.fn().mockResolvedValue(2) },
     } as any;
-    const svc = new SectionsService(prisma, {} as any, {} as any);
+    const svc = makeSectionsService(prisma, {} as any, {} as any);
 
     await expect(svc.getSummary('sec-1')).resolves.toEqual({
       id: 'sec-1',

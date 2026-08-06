@@ -1,3 +1,19 @@
 packages:
-  - 'apps/*'
+  - 'apps/api'
+  - 'apps/web'
   - 'packages/*'
+
+# apps/web-angular is deliberately outside the workspace. It is the
+# archived Angular 18 client, superseded by apps/web, and it has no auth
+# flow at all: its catalog calls JWT-guarded endpoints, so it can never
+# work against the current API. Leaving it in the globs made every
+# install resolve an EOL framework's tree and every audit report on it.
+# The source stays on disk (and in git history) as reference material.
+
+onlyBuiltDependencies:
+  - '@nestjs/core'
+  - '@prisma/client'
+  - '@prisma/engines'
+  - bcrypt
+  - esbuild
+  - prisma
