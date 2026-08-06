@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { DEPARTMENT_LABELS } from '@enroll/shared';
 import type { PaginatedCoursesResponse } from '@enroll/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { apiGet } from '@/lib/api/server';
 import { parseCatalogParams, serializeCatalogParams } from '@/lib/catalog-params';
 import { seatStatus } from '@/lib/seat-status';
@@ -32,18 +34,57 @@ export default async function CatalogPage({
     redirect(`/catalog${lastQs ? `?${lastQs}` : ''}`);
   }
 
+  const hasFilters = Boolean(params.search || params.department);
+
   return (
     <div>
       <h1 className="font-display text-2xl font-bold text-pine-dark">Course catalog</h1>
       <SearchControls initial={params} />
 
       {result.data.length === 0 ? (
-        <Card className="mt-6 text-center text-sm text-ink-soft">
-          No courses match.{' '}
-          <Link href="/catalog" className="text-pine underline">
-            Clear filters
-          </Link>
-        </Card>
+        <EmptyState
+          className="mt-6"
+          title="No courses match these filters"
+          body={
+            hasFilters
+              ? 'Every course in the current term was checked. Widen or drop a filter to see more.'
+              : 'This term has no courses in the catalog yet. Once a registrar publishes sections, they appear here.'
+          }
+          // The filters that produced the empty result, so the user can
+          // see which one to loosen instead of guessing.
+          facts={
+            hasFilters
+              ? [
+                  ...(params.search
+                    ? [
+                        {
+                          label: 'Search',
+                          value: <span className="font-mono">{params.search}</span>,
+                        },
+                      ]
+                    : []),
+                  ...(params.department
+                    ? [
+                        {
+                          label: 'Department',
+                          value: `${DEPARTMENT_LABELS[params.department]} (${params.department})`,
+                        },
+                      ]
+                    : []),
+                ]
+              : undefined
+          }
+          action={
+            hasFilters && (
+              <Link
+                href="/catalog"
+                className="inline-flex items-center rounded-sm border border-pine/40 px-3 py-1.5 text-sm font-medium text-pine transition-colors hover:border-pine hover:bg-pine-soft"
+              >
+                Clear all filters
+              </Link>
+            )
+          }
+        />
       ) : (
         <ul className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {result.data.map((course) => {
@@ -54,7 +95,9 @@ export default async function CatalogPage({
                 <Link href={`/courses/${course.id}`} className="block h-full">
                   <Card className="h-full transition-colors hover:border-pine">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-mono text-sm font-bold text-pine">{course.code}</span>
+                      <span className="font-mono text-sm font-bold text-pine">
+                        {course.code}
+                      </span>
                       <Badge tone="neutral">{course.credits} cr</Badge>
                     </div>
                     <p className="font-display mt-1 font-semibold">{course.title}</p>

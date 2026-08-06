@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import type { NotificationsResponse } from '@enroll/shared';
 
-import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { apiGet } from '@/lib/api/server';
 
 import { MarkAllReadButton } from './mark-all-read-button';
@@ -20,7 +20,11 @@ export default async function NotificationsPage() {
       </div>
 
       {data.length === 0 ? (
-        <Card className="mt-6 text-center text-sm text-ink-soft">You have no notifications.</Card>
+        <EmptyState
+          className="mt-6"
+          title="Nothing to report"
+          body="This is where the registrar tells you about changes you did not make yourself: a waitlist seat that opened and enrolled you, or a waitlist spot that expired when registration closed."
+        />
       ) : (
         <div className="mt-6 flex flex-col gap-3">
           {data.map((n) => (

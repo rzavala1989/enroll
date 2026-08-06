@@ -5,7 +5,7 @@ import type { MyEnrollment } from '@enroll/shared';
 
 import { Badge } from '@/components/ui/badge';
 import type { BadgeTone } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { apiGet } from '@/lib/api/server';
 
@@ -47,9 +47,12 @@ function EnrollmentRows({
             <TD>
               <span className="flex items-center gap-1.5">
                 <Badge tone={statusTone[e.status]}>{e.status}</Badge>
-                {e.status === EnrollmentStatus.WAITLISTED && e.waitlistPosition != null && (
-                  <span className="text-xs text-wait">#{e.waitlistPosition} in line</span>
-                )}
+                {e.status === EnrollmentStatus.WAITLISTED &&
+                  e.waitlistPosition != null && (
+                    <span className="text-xs text-wait">
+                      #{e.waitlistPosition} in line
+                    </span>
+                  )}
               </span>
             </TD>
             <TD>
@@ -79,10 +82,12 @@ function EnrollmentRows({
 export default async function EnrollmentsPage() {
   const rows = await apiGet<MyEnrollment[]>('/enrollments');
   const active = rows.filter(
-    (e) => e.status === EnrollmentStatus.ENROLLED || e.status === EnrollmentStatus.WAITLISTED,
+    (e) =>
+      e.status === EnrollmentStatus.ENROLLED || e.status === EnrollmentStatus.WAITLISTED,
   );
   const past = rows.filter(
-    (e) => e.status !== EnrollmentStatus.ENROLLED && e.status !== EnrollmentStatus.WAITLISTED,
+    (e) =>
+      e.status !== EnrollmentStatus.ENROLLED && e.status !== EnrollmentStatus.WAITLISTED,
   );
 
   return (
@@ -90,12 +95,28 @@ export default async function EnrollmentsPage() {
       <h1 className="font-display text-2xl font-bold text-pine-dark">My enrollments</h1>
 
       {active.length === 0 ? (
-        <Card className="mt-6 text-center text-sm text-ink-soft">
-          You have no active enrollments.{' '}
-          <Link href="/catalog" className="text-pine underline">
-            Browse the catalog
-          </Link>
-        </Card>
+        <EmptyState
+          className="mt-6"
+          title="No active enrollments"
+          body={
+            past.length > 0
+              ? 'Nothing is currently enrolled or waitlisted. Your past enrollments are below.'
+              : 'Enroll in a section from the catalog. If it is already full you join its waitlist, and you are enrolled automatically when a seat opens.'
+          }
+          facts={
+            past.length > 0
+              ? [{ label: 'Past enrollments', value: past.length }]
+              : undefined
+          }
+          action={
+            <Link
+              href="/catalog"
+              className="inline-flex items-center rounded-sm border border-pine bg-pine px-3 py-1.5 text-sm font-medium text-paper transition-colors hover:bg-pine-dark"
+            >
+              Browse the catalog
+            </Link>
+          }
+        />
       ) : (
         <div className="mt-6">
           <EnrollmentRows rows={active} withActions caption="Active enrollments" />

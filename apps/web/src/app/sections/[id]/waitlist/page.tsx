@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { Role } from '@enroll/shared';
 import type { SectionSummary, WaitlistEntry } from '@enroll/shared';
 
-import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { apiGet } from '@/lib/api/server';
 import { formatDateTime } from '@/lib/format';
@@ -50,7 +50,35 @@ export default async function WaitlistPage({
       )}
 
       {entries.length === 0 ? (
-        <Card className="mt-6 text-center text-sm text-ink-soft">No one is waiting.</Card>
+        <EmptyState
+          className="mt-6"
+          title="No students waiting"
+          body={
+            summary && summary.seatsAvailable > 0
+              ? 'Students join the waitlist only once every seat is taken. This section still has room, so enrollments go straight through.'
+              : 'Students who try to enroll while this section is full land here, in join order. When a seat opens, the student at the top is enrolled automatically.'
+          }
+          facts={
+            summary
+              ? [
+                  {
+                    label: 'Seats',
+                    value: `${summary.enrolledCount} of ${summary.capacity} taken`,
+                  },
+                  { label: 'Available', value: summary.seatsAvailable },
+                  {
+                    label: 'Waitlist cap',
+                    value:
+                      summary.waitlistCap === null
+                        ? 'Unlimited'
+                        : summary.waitlistCap === 0
+                          ? 'Disabled'
+                          : summary.waitlistCap,
+                  },
+                ]
+              : undefined
+          }
+        />
       ) : (
         <div className="mt-6 max-w-2xl">
           {isAdmin ? (
@@ -60,7 +88,9 @@ export default async function WaitlistPage({
               caption={`Waitlist${course ? ` for ${course}` : ''}${section ? ` section ${section}` : ''}`}
             />
           ) : (
-            <Table caption={`Waitlist${course ? ` for ${course}` : ''}${section ? ` section ${section}` : ''}`}>
+            <Table
+              caption={`Waitlist${course ? ` for ${course}` : ''}${section ? ` section ${section}` : ''}`}
+            >
               <THead>
                 <tr>
                   <TH className="w-16">#</TH>
