@@ -4,13 +4,10 @@ import { Role } from '@enroll/shared';
 import type { CourseDetail } from '@enroll/shared';
 
 import { Badge } from '@/components/ui/badge';
-import { SeatMeter } from '@/components/ui/seat-meter';
-import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { apiGet } from '@/lib/api/server';
 import { getIdentity } from '@/lib/identity';
-import { seatStatus } from '@/lib/seat-status';
 
-import { EnrollButton } from './enroll-button';
+import { SectionsTable } from './sections-table';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -64,62 +61,12 @@ export default async function CoursePage({
 
       <h2 className="font-display mt-8 text-lg font-semibold">Sections</h2>
       <div className="mt-3">
-        <Table caption={`Sections for ${course.code}`}>
-          <THead>
-            <tr>
-              <TH>Section</TH>
-              <TH>Instructor</TH>
-              <TH>Meets</TH>
-              <TH>Room</TH>
-              <TH>Seats</TH>
-              <TH className="text-right">Action</TH>
-            </tr>
-          </THead>
-          <TBody>
-            {course.sections.map((s) => {
-              const status = seatStatus(s.seatsAvailable, s.capacity);
-              return (
-                <TR key={s.id}>
-                  <TD className="whitespace-nowrap font-mono font-semibold">
-                    {s.sectionNumber}
-                  </TD>
-                  <TD className="whitespace-nowrap">{s.instructorName}</TD>
-                  <TD className="whitespace-nowrap">{s.meetingPattern}</TD>
-                  <TD className="whitespace-nowrap">{s.room}</TD>
-                  <TD>
-                    <SeatMeter
-                      enrolled={s.capacity - s.seatsAvailable}
-                      capacity={s.capacity}
-                      waitlistCount={s.waitlistCount}
-                    />
-                  </TD>
-                  <TD className="text-right">
-                    {isStudent && (
-                      <EnrollButton
-                        sectionId={s.id}
-                        full={status === 'full'}
-                        waitlistFull={
-                          status === 'full' &&
-                          s.waitlistCap != null &&
-                          s.waitlistCount >= s.waitlistCap
-                        }
-                        viewerEnrollment={s.viewerEnrollment}
-                      />
-                    )}
-                    {isStaff && (
-                      <Link
-                        href={`/sections/${s.id}/waitlist?course=${encodeURIComponent(course.code)}&section=${encodeURIComponent(s.sectionNumber)}`}
-                        className="text-sm text-pine underline"
-                      >
-                        Waitlist
-                      </Link>
-                    )}
-                  </TD>
-                </TR>
-              );
-            })}
-          </TBody>
-        </Table>
+        <SectionsTable
+          sections={course.sections}
+          courseCode={course.code}
+          isStudent={isStudent}
+          isStaff={isStaff}
+        />
       </div>
     </div>
   );

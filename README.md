@@ -22,6 +22,12 @@ scripts/        migrate-safe.sh, the Prisma generated-column workaround
 - **Generated search vector workaround**: `Course.searchVector` uses a Postgres generated column for full-text search. Prisma cannot model this natively, creating drift where `prisma migrate dev` attempts to drop it. `migrate-safe.sh` acts as a deployment safety net, scrubbing the diff before apply.
 - **Concurrency testing**: A dedicated `k6` load profile (`load/registration-day.js`) simulates the thundering herd of a registration window opening. Assertions verify that capacity is perfectly respected under high contention and that lock wait times remain acceptable.
 
+## UI & Presentation Architecture
+
+- **Enterprise-Grade DataGrids**: Complex table views (Catalogs, Schedules, and Academic History) are powered by `@tanstack/react-table`. This achieves perfectly ergonomic column alignment, strict pixel-perfect widths, and seamless type-safe data bindings, far surpassing brittle flex-box wrappers.
+- **Bespoke Product Layouts**: The application interface rejects generic "bento box" card patterns in favor of bespoke, staff-level design principles. Core pages utilize explicit 12-column CSS grids to strictly enforce main-content vs. sidebar proportions (e.g., 8:4 or 9:3 splits), ensuring robust data displays have breathing room across all viewports.
+- **Polished Aesthetics & Typography**: The presentation tier leverages a cohesive, commanding design system with custom micro-interactions. Dynamic status badge theming, rich typography (`font-display`), bespoke gradient avatars, and sophisticated borders (`ring-pine/20`) construct an impeccable and trustworthy user experience.
+
 ## Prerequisites
 
 - Node.js >= 20.11
