@@ -56,14 +56,18 @@ function CourseRow({ course }: { course: CourseListItem }) {
       <span className="min-w-0 flex-1 text-sm font-medium group-hover:text-pine">
         {course.title}
       </span>
-      <span className="hidden shrink-0 font-mono text-xs tabular-nums text-ink-soft sm:inline">
+      <span className="hidden w-12 shrink-0 text-right font-mono text-xs tabular-nums text-ink-soft sm:inline-block">
         {course.credits} cr
       </span>
-      <span className="hidden shrink-0 text-xs text-ink-soft md:inline">
+      <span className="hidden w-16 shrink-0 text-right text-xs text-ink-soft md:inline-block">
         {course.sectionCount} {course.sectionCount === 1 ? 'sec' : 'secs'}
       </span>
-      <SeatMeter enrolled={course.totalEnrolled} capacity={course.totalCapacity} />
-      <Badge tone={statusTone[status]}>{statusLabel[status]}</Badge>
+      <div className="w-24 shrink-0 flex justify-end">
+        <SeatMeter enrolled={course.totalEnrolled} capacity={course.totalCapacity} />
+      </div>
+      <div className="w-20 shrink-0 flex justify-end">
+        <Badge tone={statusTone[status]}>{statusLabel[status]}</Badge>
+      </div>
     </Link>
   );
 }

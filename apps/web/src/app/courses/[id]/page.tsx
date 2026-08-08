@@ -64,10 +64,12 @@ export default async function CoursePage({
               const status = seatStatus(s.seatsAvailable, s.capacity);
               return (
                 <TR key={s.id}>
-                  <TD className="font-mono font-semibold">{s.sectionNumber}</TD>
-                  <TD>{s.instructorName}</TD>
-                  <TD>{s.meetingPattern}</TD>
-                  <TD>{s.room}</TD>
+                  <TD className="whitespace-nowrap font-mono font-semibold">
+                    {s.sectionNumber}
+                  </TD>
+                  <TD className="whitespace-nowrap">{s.instructorName}</TD>
+                  <TD className="whitespace-nowrap">{s.meetingPattern}</TD>
+                  <TD className="whitespace-nowrap">{s.room}</TD>
                   <TD>
                     <SeatMeter
                       enrolled={s.capacity - s.seatsAvailable}

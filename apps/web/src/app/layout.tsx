@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Serif } from 'next/font/google';
+import { Crimson_Pro, DM_Sans, JetBrains_Mono } from 'next/font/google';
 
 import { NavShell } from '@/components/nav-shell';
 import { ToastProvider } from '@/components/toast';
@@ -7,18 +7,18 @@ import { getIdentity } from '@/lib/identity';
 
 import './globals.css';
 
-const plexSerif = IBM_Plex_Serif({
-  variable: '--font-plex-serif',
+const crimsonPro = Crimson_Pro({
+  variable: '--font-crimson',
   subsets: ['latin'],
   weight: ['500', '600', '700'],
 });
-const plexSans = IBM_Plex_Sans({
-  variable: '--font-plex-sans',
+const dmSans = DM_Sans({
+  variable: '--font-dm-sans',
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
 });
-const plexMono = IBM_Plex_Mono({
-  variable: '--font-plex-mono',
+const jetbrainsMono = JetBrains_Mono({
+  variable: '--font-jb-mono',
   subsets: ['latin'],
   weight: ['400', '500', '600'],
 });
@@ -34,7 +34,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en">
       <body
-        className={`${plexSerif.variable} ${plexSans.variable} ${plexMono.variable} antialiased`}
+        className={`${crimsonPro.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased`}
+        style={{ fontFamily: 'var(--font-dm-sans), system-ui, sans-serif' }}
       >
         <ToastProvider>
           <NavShell identity={identity} />

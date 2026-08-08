@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 import { EnrollmentStatus } from '@enroll/shared';
 import type { MyEnrollment } from '@enroll/shared';
@@ -6,8 +7,8 @@ import type { MyEnrollment } from '@enroll/shared';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeTone } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { apiGet } from '@/lib/api/server';
+import { deptFromCode, deptLabel, DEPT_IMAGES, DEPT_COLORS } from '@/lib/departments';
 
 import { EnrollmentActions } from './enrollment-actions';
 
@@ -20,62 +21,109 @@ const statusTone: Record<EnrollmentStatus, BadgeTone> = {
   [EnrollmentStatus.COMPLETED]: 'pine',
 };
 
-function EnrollmentRows({
-  rows,
+function EnrollmentCard({
+  enrollment,
   withActions,
-  caption,
 }: {
-  rows: MyEnrollment[];
+  enrollment: MyEnrollment;
   withActions: boolean;
-  caption: string;
 }) {
+  const dept = deptFromCode(enrollment.course.code);
+  const image = DEPT_IMAGES[dept];
+  const color = DEPT_COLORS[dept] ?? 'var(--color-ink)';
+
   return (
-    <Table caption={caption}>
-      <THead>
-        <tr>
-          <TH>Status</TH>
-          <TH>Course</TH>
-          <TH>Section</TH>
-          <TH>Meets</TH>
-          <TH>Instructor</TH>
-          {withActions && <TH className="text-right">Action</TH>}
-        </tr>
-      </THead>
-      <TBody>
-        {rows.map((e) => (
-          <TR key={e.id}>
-            <TD>
-              <span className="flex items-center gap-1.5">
-                <Badge tone={statusTone[e.status]}>{e.status}</Badge>
-                {e.status === EnrollmentStatus.WAITLISTED &&
-                  e.waitlistPosition != null && (
-                    <span className="text-xs text-wait">
-                      #{e.waitlistPosition} in line
-                    </span>
-                  )}
+    <div className="group overflow-hidden rounded-sm border border-line bg-card transition-colors hover:border-pine/40">
+      <Link
+        href={`/courses/${enrollment.course.id}`}
+        className="relative block"
+        style={{ height: 100 }}
+      >
+        {image && (
+          <Image
+            src={image}
+            alt=""
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            className="object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+        )}
+        <div
+          className="absolute inset-0 mix-blend-multiply"
+          style={{ backgroundColor: color, opacity: 0.55 }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 px-4 pb-3">
+          <span className="font-mono text-xs font-semibold tracking-wide text-white/80">
+            {enrollment.course.code}
+          </span>
+          <p className="mt-0.5 truncate font-display text-sm font-semibold text-white">
+            {enrollment.course.title}
+          </p>
+        </div>
+        <span className="absolute right-3 top-3 rounded-sm bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm">
+          {enrollment.status}
+        </span>
+      </Link>
+
+      <div className="px-4 py-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-1.5 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wide text-ink-soft">
+                Section
               </span>
-            </TD>
-            <TD>
-              <Link href={`/courses/${e.course.id}`} className="hover:underline">
-                <span className="font-mono font-semibold text-pine">{e.course.code}</span>{' '}
-                {e.course.title}
-              </Link>
-            </TD>
-            <TD className="font-mono">{e.section.sectionNumber}</TD>
-            <TD>
-              {e.section.meetingPattern}
-              <span className="block text-xs text-ink-soft">{e.section.room}</span>
-            </TD>
-            <TD>{e.section.instructorName}</TD>
-            {withActions && (
-              <TD className="text-right">
-                <EnrollmentActions enrollmentId={e.id} status={e.status} />
-              </TD>
-            )}
-          </TR>
-        ))}
-      </TBody>
-    </Table>
+              <span className="font-mono font-medium">
+                {enrollment.section.sectionNumber}
+              </span>
+            </div>
+            <p className="text-ink-soft">{enrollment.section.meetingPattern}</p>
+            <p className="text-xs text-ink-soft">{enrollment.section.room}</p>
+          </div>
+          <div className="text-right text-sm">
+            <p className="font-medium">{enrollment.section.instructorName}</p>
+            <p className="font-mono text-xs text-ink-soft">
+              {enrollment.course.credits} credits
+            </p>
+            {enrollment.status === EnrollmentStatus.WAITLISTED &&
+              enrollment.waitlistPosition != null && (
+                <p className="mt-1 text-xs font-semibold text-wait">
+                  #{enrollment.waitlistPosition} in line
+                </p>
+              )}
+          </div>
+        </div>
+
+        {withActions && (
+          <div className="mt-3 border-t border-line pt-3">
+            <EnrollmentActions enrollmentId={enrollment.id} status={enrollment.status} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PastRow({ enrollment }: { enrollment: MyEnrollment }) {
+  const dept = deptFromCode(enrollment.course.code);
+  const color = DEPT_COLORS[dept] ?? 'var(--color-ink)';
+
+  return (
+    <div className="flex items-center gap-4 px-4 py-2.5">
+      <span
+        className="h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: color }}
+        aria-hidden="true"
+      />
+      <span className="w-20 shrink-0 font-mono text-sm font-semibold text-pine">
+        {enrollment.course.code}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm">{enrollment.course.title}</span>
+      <span className="shrink-0 font-mono text-xs tabular-nums text-ink-soft">
+        {enrollment.course.credits} cr
+      </span>
+      <Badge tone={statusTone[enrollment.status]}>{enrollment.status}</Badge>
+    </div>
   );
 }
 
@@ -118,9 +166,16 @@ export default async function EnrollmentsPage() {
           }
         />
       ) : (
-        <div className="mt-6">
-          <EnrollmentRows rows={active} withActions caption="Active enrollments" />
-        </div>
+        <>
+          <p className="mt-2 text-sm text-ink-soft">
+            {active.length} active {active.length === 1 ? 'course' : 'courses'}
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {active.map((e) => (
+              <EnrollmentCard key={e.id} enrollment={e} withActions />
+            ))}
+          </div>
+        </>
       )}
 
       {past.length > 0 && (
@@ -128,8 +183,10 @@ export default async function EnrollmentsPage() {
           <summary className="cursor-pointer text-sm font-semibold text-ink-soft">
             Past enrollments ({past.length})
           </summary>
-          <div className="mt-3">
-            <EnrollmentRows rows={past} withActions={false} caption="Past enrollments" />
+          <div className="mt-3 divide-y divide-line overflow-hidden rounded-sm border border-line bg-card">
+            {past.map((e) => (
+              <PastRow key={e.id} enrollment={e} />
+            ))}
           </div>
         </details>
       )}

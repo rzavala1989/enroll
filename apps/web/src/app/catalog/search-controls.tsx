@@ -9,8 +9,29 @@ import type { CatalogParams } from '@/lib/catalog-params';
 import { PAGE_SIZES, serializeCatalogParams } from '@/lib/catalog-params';
 import { cn } from '@/lib/cn';
 
+function SearchIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      width="16"
+      height="16"
+      fill="none"
+      aria-hidden="true"
+      className="text-ink-soft"
+    >
+      <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M12.5 12.5 17 17"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 const selectCls =
-  'rounded-sm border border-line bg-card px-2 py-1.5 text-sm focus:border-pine focus:outline-none';
+  'h-9 rounded-sm border border-line bg-card px-2.5 text-sm text-ink focus:border-pine focus:outline-none';
 
 export function SearchControls({ initial }: { initial: CatalogParams }) {
   const router = useRouter();
@@ -19,10 +40,6 @@ export function SearchControls({ initial }: { initial: CatalogParams }) {
   const [syncedSearch, setSyncedSearch] = useState(initial.search);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Re-sync the input when the URL's search changes from outside the box
-  // (Clear filters link, browser back/forward). Adjusting state during render
-  // is the React-recommended pattern here; the debounce guard below then
-  // short-circuits, so this never triggers a redundant navigation.
   if (initial.search !== syncedSearch) {
     setSyncedSearch(initial.search);
     setSearch(initial.search);
@@ -30,14 +47,13 @@ export function SearchControls({ initial }: { initial: CatalogParams }) {
 
   function apply(patch: Partial<CatalogParams>) {
     const next = { ...initial, page: 1, ...patch };
-    // Relevance only exists while searching; drop it when search clears so the
-    // select value can't dangle to a no-longer-rendered option.
     if (!next.search && next.sortBy === 'relevance') next.sortBy = 'code';
     const qs = serializeCatalogParams(next);
-    startTransition(() => router.replace(`/catalog${qs ? `?${qs}` : ''}`, { scroll: false }));
+    startTransition(() =>
+      router.replace(`/catalog${qs ? `?${qs}` : ''}`, { scroll: false }),
+    );
   }
 
-  // Debounced search-as-you-type, 300ms, matching the old Angular UX.
   useEffect(() => {
     if (search === initial.search) return;
     if (debounce.current) clearTimeout(debounce.current);
@@ -50,52 +66,62 @@ export function SearchControls({ initial }: { initial: CatalogParams }) {
 
   return (
     <div
-      className={cn('mt-4 flex flex-wrap items-center gap-2', isPending && 'opacity-60')}
+      className={cn(
+        'mt-4 rounded-sm border border-line bg-card px-4 py-3',
+        isPending && 'opacity-60',
+      )}
       role="search"
     >
-      <input
-        type="search"
-        aria-label="Search courses"
-        placeholder="Search courses"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-64 rounded-sm border border-line bg-card px-2 py-1.5 text-sm focus:border-pine focus:outline-none"
-      />
-      <select
-        aria-label="Department"
-        value={initial.department}
-        onChange={(e) => apply({ department: e.target.value as Department | '' })}
-        className={selectCls}
-      >
-        <option value="">All departments</option>
-        {ALL_DEPARTMENTS.map((d) => (
-          <option key={d} value={d}>
-            {DEPARTMENT_LABELS[d]}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label="Sort by"
-        value={initial.sortBy}
-        onChange={(e) => apply({ sortBy: e.target.value as CatalogParams['sortBy'] })}
-        className={selectCls}
-      >
-        <option value="code">Sort: code</option>
-        <option value="title">Sort: title</option>
-        {initial.search && <option value="relevance">Sort: relevance</option>}
-      </select>
-      <select
-        aria-label="Page size"
-        value={initial.limit}
-        onChange={(e) => apply({ limit: Number(e.target.value) })}
-        className={selectCls}
-      >
-        {PAGE_SIZES.map((n) => (
-          <option key={n} value={n}>
-            {n} per page
-          </option>
-        ))}
-      </select>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1" style={{ minWidth: 200 }}>
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2">
+            <SearchIcon />
+          </span>
+          <input
+            type="search"
+            aria-label="Search courses"
+            placeholder="Search by code, title, or keyword"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 w-full rounded-sm border border-line bg-paper pl-8 pr-3 text-sm focus:border-pine focus:outline-none"
+          />
+        </div>
+        <select
+          aria-label="Department"
+          value={initial.department}
+          onChange={(e) => apply({ department: e.target.value as Department | '' })}
+          className={selectCls}
+        >
+          <option value="">All departments</option>
+          {ALL_DEPARTMENTS.map((d) => (
+            <option key={d} value={d}>
+              {DEPARTMENT_LABELS[d]}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Sort by"
+          value={initial.sortBy}
+          onChange={(e) => apply({ sortBy: e.target.value as CatalogParams['sortBy'] })}
+          className={selectCls}
+        >
+          <option value="code">Sort: code</option>
+          <option value="title">Sort: title</option>
+          {initial.search && <option value="relevance">Sort: relevance</option>}
+        </select>
+        <select
+          aria-label="Page size"
+          value={initial.limit}
+          onChange={(e) => apply({ limit: Number(e.target.value) })}
+          className={selectCls}
+        >
+          {PAGE_SIZES.map((n) => (
+            <option key={n} value={n}>
+              {n} per page
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
