@@ -1,11 +1,10 @@
--- NOTE: future `prisma migrate dev` runs that diff the Course model will emit two bogus lines:
---   DROP INDEX "Course_searchVector_idx";
---   ALTER TABLE "Course" ALTER COLUMN "searchVector" DROP DEFAULT;
--- The DROP DEFAULT fails because Postgres requires DROP EXPRESSION on generated columns.
--- Also, the partial unique index "enrollment_one_active_per_student_section" added below
--- is not tracked by Prisma, so it will appear as schema drift on every future diff.
--- Workflow for all future migrations: run `migrate dev --create-only`, delete those bogus
--- Course lines and any re-creation of the partial unique index, then `migrate deploy`.
+-- NOTE: future `prisma migrate dev` runs that diff the Course model may emit
+-- bogus Course full-text-search changes. Those lines remove the generated-column
+-- search index or try to alter the generated expression in a way Postgres rejects.
+-- Also, the partial unique index "enrollment_one_active_per_student_section"
+-- added below is not tracked by Prisma, so it can appear as schema drift on future diffs.
+-- Workflow for future migrations: run `migrate dev --create-only`, remove any bogus
+-- Course FTS edits and any re-creation of the partial unique index, then `migrate deploy`.
 
 -- AlterTable
 ALTER TABLE "Enrollment" ADD COLUMN     "waitlistPosition" INTEGER;
