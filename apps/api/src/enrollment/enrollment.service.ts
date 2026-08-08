@@ -13,7 +13,7 @@ import { MetricsService } from '../common/metrics.service';
 import type { RequestActor } from '../common/request-actor';
 import { PrismaService } from '../prisma/prisma.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
-import { EnrollDto, EnrollmentResultDto } from './dto/enroll.dto';
+import { EnrollDto, EnrollmentResultDto, SwapDto } from './dto/enroll.dto';
 import { ListMyEnrollmentsQueryDto } from './dto/list-my-enrollments-query.dto';
 import { MyEnrollmentDto } from './dto/my-enrollment.dto';
 import { hasTimeConflict } from './time-conflict';
@@ -69,10 +69,12 @@ export class EnrollmentService {
           meetingPattern: true,
           capacity: true,
           enrolledCount: true,
+          course: { select: { credits: true } },
           term: {
             select: {
               registrationOpens: true,
               registrationCloses: true,
+              maxCredits: true,
             },
           },
         },
@@ -124,6 +126,18 @@ export class EnrollmentService {
           message: student.classStanding
             ? `Registration for ${student.classStanding.toLowerCase()}s opens ${effectiveOpens.toISOString()}.`
             : `Registration opens ${effectiveOpens.toISOString()}.`,
+        });
+      }
+
+      // 2c. Advisor hold: an active hold blocks all registration.
+      const hold = await tx.advisorHold.findFirst({
+        where: { studentId: userId, releasedAt: null },
+        select: { reason: true },
+      });
+      if (hold) {
+        throw new BadRequestException({
+          code: 'ADVISOR_HOLD',
+          message: `Registration blocked by advisor hold: ${hold.reason}`,
         });
       }
 
@@ -266,7 +280,7 @@ export class EnrollmentService {
             select: {
               meetingPattern: true,
               sectionNumber: true,
-              course: { select: { code: true } },
+              course: { select: { code: true, credits: true } },
             },
           },
         },
@@ -279,6 +293,27 @@ export class EnrollmentService {
             message: `Schedule conflict with ${existing.section.course.code} section ${existing.section.sectionNumber}.`,
           });
         }
+      }
+
+      // Credit limit: the student's active credits in this term plus
+      // the target course's credits must not exceed the term cap (or
+      // an advisor-approved overload limit).
+      const currentCredits = myActive
+        .filter((e) => e.sectionId !== input.sectionId)
+        .reduce((sum, e) => sum + e.section.course.credits, 0);
+      const overload = await tx.overloadApproval.findUnique({
+        where: {
+          studentId_termId: { studentId: userId, termId: section.termId },
+        },
+        select: { maxCredits: true },
+      });
+      const creditCap = overload?.maxCredits ?? section.term.maxCredits;
+      const proposed = currentCredits + section.course.credits;
+      if (proposed > creditCap) {
+        throw new BadRequestException({
+          code: 'CREDIT_LIMIT_EXCEEDED',
+          message: `Adding ${section.course.credits} credits would bring you to ${proposed}, exceeding the ${creditCap} credit limit.`,
+        });
       }
 
       // Seat available means enroll. Otherwise, waitlist.
@@ -520,6 +555,355 @@ export class EnrollmentService {
           sectionCapacity: section?.capacity ?? 0,
         } as EnrollmentResultDto,
         freedSeatSectionId: (freedSeat ? current.sectionId : null) as string | null,
+      };
+    });
+
+    if (freedSeatSectionId) {
+      await this.waitlist.enqueuePromotion(freedSeatSectionId);
+    }
+    return result;
+  }
+
+  async swap(
+    enrollmentId: string,
+    input: SwapDto,
+    userId: string,
+    actor: RequestActor,
+  ): Promise<EnrollmentResultDto> {
+    const { result, freedSeatSectionId } = await this.prisma.$transaction(async (tx) => {
+      // 1. Read the source enrollment.
+      const source = await tx.enrollment.findUnique({
+        where: { id: enrollmentId },
+        select: {
+          id: true,
+          studentId: true,
+          sectionId: true,
+          status: true,
+          section: {
+            select: {
+              courseId: true,
+              termId: true,
+              meetingPattern: true,
+              course: { select: { credits: true } },
+            },
+          },
+        },
+      });
+      if (!source) {
+        throw new NotFoundException('Enrollment not found.');
+      }
+      if (
+        source.status !== EnrollmentStatus.ENROLLED &&
+        source.status !== EnrollmentStatus.WAITLISTED
+      ) {
+        throw new BadRequestException({
+          code: 'ALREADY_DROPPED',
+          message: `Cannot swap an enrollment in status ${source.status}.`,
+        });
+      }
+
+      // Swapping to the same section is a no-op.
+      if (source.sectionId === input.targetSectionId) {
+        const sec = await tx.section.findUnique({
+          where: { id: source.sectionId },
+          select: { capacity: true, enrolledCount: true },
+        });
+        return {
+          result: {
+            id: source.id,
+            studentId: source.studentId,
+            sectionId: source.sectionId,
+            status: source.status,
+            enrolledAt:
+              (source as any).enrolledAt?.toISOString?.() ?? new Date().toISOString(),
+            sectionEnrolledCount: sec?.enrolledCount ?? 0,
+            sectionCapacity: sec?.capacity ?? 0,
+          } as EnrollmentResultDto,
+          freedSeatSectionId: null as string | null,
+        };
+      }
+
+      // 2. Read the target section.
+      const target = await tx.section.findUnique({
+        where: { id: input.targetSectionId },
+        select: {
+          id: true,
+          courseId: true,
+          termId: true,
+          meetingPattern: true,
+          capacity: true,
+          enrolledCount: true,
+          course: { select: { credits: true } },
+          term: {
+            select: {
+              registrationOpens: true,
+              registrationCloses: true,
+              maxCredits: true,
+            },
+          },
+        },
+      });
+      if (!target) {
+        throw new NotFoundException({
+          code: 'SECTION_NOT_FOUND',
+          message: 'Target section does not exist.',
+        });
+      }
+
+      const now = new Date();
+      if (now > target.term.registrationCloses) {
+        throw new BadRequestException({
+          code: 'REGISTRATION_CLOSED',
+          message: "Registration has closed for the target section's term.",
+        });
+      }
+
+      // 3. Student verification, standing window, advisor hold.
+      const student = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, classStanding: true },
+      });
+      if (!student) {
+        throw new NotFoundException({
+          code: 'STUDENT_NOT_FOUND',
+          message: 'Student does not exist.',
+        });
+      }
+
+      const window = student.classStanding
+        ? await tx.registrationWindow.findUnique({
+            where: {
+              termId_classStanding: {
+                termId: target.termId,
+                classStanding: student.classStanding,
+              },
+            },
+            select: { opensAt: true },
+          })
+        : null;
+      const effectiveOpens = window?.opensAt ?? target.term.registrationOpens;
+      if (now < effectiveOpens) {
+        throw new BadRequestException({
+          code: 'REGISTRATION_NOT_OPEN',
+          message: student.classStanding
+            ? `Registration for ${student.classStanding.toLowerCase()}s opens ${effectiveOpens.toISOString()}.`
+            : `Registration opens ${effectiveOpens.toISOString()}.`,
+        });
+      }
+
+      const hold = await tx.advisorHold.findFirst({
+        where: { studentId: userId, releasedAt: null },
+        select: { reason: true },
+      });
+      if (hold) {
+        throw new BadRequestException({
+          code: 'ADVISOR_HOLD',
+          message: `Registration blocked by advisor hold: ${hold.reason}`,
+        });
+      }
+
+      // 4. Lock both sections in a consistent order to avoid deadlocks.
+      const [firstId, secondId] = [source.sectionId, input.targetSectionId].sort();
+      await tx.$queryRaw`
+        SELECT id FROM "Section"
+        WHERE id IN (${firstId}::uuid, ${secondId}::uuid)
+        ORDER BY id
+        FOR UPDATE
+      `;
+
+      // Re-read source enrollment under lock.
+      const lockedSource = await tx.enrollment.findUnique({
+        where: { id: enrollmentId },
+        select: { id: true, status: true, enrolledAt: true, waitlistPosition: true },
+      });
+      if (
+        !lockedSource ||
+        (lockedSource.status !== EnrollmentStatus.ENROLLED &&
+          lockedSource.status !== EnrollmentStatus.WAITLISTED)
+      ) {
+        throw new BadRequestException({
+          code: 'ALREADY_DROPPED',
+          message: 'Source enrollment is no longer active.',
+        });
+      }
+
+      // Re-read target section capacity under lock.
+      const lockedTarget = await tx.$queryRaw<
+        Array<{ id: string; capacity: number; enrolledCount: number }>
+      >`
+        SELECT id, capacity, "enrolledCount"
+        FROM "Section"
+        WHERE id = ${input.targetSectionId}::uuid
+      `;
+      const liveTarget = lockedTarget[0];
+      if (!liveTarget || liveTarget.enrolledCount >= liveTarget.capacity) {
+        throw new ConflictException({
+          code: 'SWAP_TARGET_FULL',
+          message: 'The target section has no available seats.',
+        });
+      }
+
+      // 5. Eligibility checks against the target section.
+
+      // Same-course duplicate: skip if swapping within the same course.
+      const sameCourse = source.section.courseId === target.courseId;
+      if (!sameCourse) {
+        const dup = await tx.enrollment.findFirst({
+          where: {
+            studentId: userId,
+            status: { in: [EnrollmentStatus.ENROLLED, EnrollmentStatus.WAITLISTED] },
+            section: { courseId: target.courseId },
+            NOT: { id: enrollmentId },
+          },
+          select: { id: true },
+        });
+        if (dup) {
+          throw new ConflictException({
+            code: 'DUPLICATE_COURSE',
+            message: 'You are already enrolled in another section of the target course.',
+          });
+        }
+      }
+
+      // Prerequisite check (only for cross-course swaps).
+      if (!sameCourse) {
+        const prereqs = await tx.coursePrerequisite.findMany({
+          where: { courseId: target.courseId },
+          select: { prerequisiteId: true },
+        });
+        if (prereqs.length > 0) {
+          const completedRows = await tx.enrollment.findMany({
+            where: { studentId: userId, status: EnrollmentStatus.COMPLETED },
+            select: { section: { select: { courseId: true } } },
+          });
+          const completed = new Set(completedRows.map((r) => r.section.courseId));
+          const missing = prereqs.filter((p) => !completed.has(p.prerequisiteId));
+          if (missing.length > 0) {
+            throw new BadRequestException({
+              code: 'PREREQUISITE_NOT_MET',
+              message:
+                'You have not completed all prerequisite courses for the target section.',
+            });
+          }
+        }
+      }
+
+      // Time conflicts: exclude the source section.
+      const myActive = await tx.enrollment.findMany({
+        where: {
+          studentId: userId,
+          status: { in: [EnrollmentStatus.ENROLLED, EnrollmentStatus.WAITLISTED] },
+          section: { termId: target.termId },
+          NOT: { id: enrollmentId },
+        },
+        select: {
+          sectionId: true,
+          section: {
+            select: {
+              meetingPattern: true,
+              sectionNumber: true,
+              course: { select: { code: true, credits: true } },
+            },
+          },
+        },
+      });
+      for (const existing of myActive) {
+        if (hasTimeConflict(target.meetingPattern, existing.section.meetingPattern)) {
+          throw new ConflictException({
+            code: 'TIME_CONFLICT',
+            message: `Schedule conflict with ${existing.section.course.code} section ${existing.section.sectionNumber}.`,
+          });
+        }
+      }
+
+      // Credit limit: exclude the source section's credits.
+      const currentCredits = myActive.reduce(
+        (sum, e) => sum + e.section.course.credits,
+        0,
+      );
+      const overload = await tx.overloadApproval.findUnique({
+        where: {
+          studentId_termId: { studentId: userId, termId: target.termId },
+        },
+        select: { maxCredits: true },
+      });
+      const creditCap = overload?.maxCredits ?? target.term.maxCredits;
+      const proposed = currentCredits + target.course.credits;
+      if (proposed > creditCap) {
+        throw new BadRequestException({
+          code: 'CREDIT_LIMIT_EXCEEDED',
+          message: `Adding ${target.course.credits} credits would bring you to ${proposed}, exceeding the ${creditCap} credit limit.`,
+        });
+      }
+
+      // 6. Execute the swap atomically.
+
+      const wasEnrolled = lockedSource.status === EnrollmentStatus.ENROLLED;
+      const droppedAt = new Date();
+
+      // Drop the source enrollment.
+      await tx.enrollment.update({
+        where: { id: enrollmentId },
+        data: {
+          status: EnrollmentStatus.DROPPED,
+          droppedAt,
+          waitlistPosition: null,
+        },
+      });
+
+      if (wasEnrolled) {
+        await tx.section.update({
+          where: { id: source.sectionId },
+          data: { enrolledCount: { decrement: 1 } },
+        });
+      }
+
+      // Create the new enrollment in the target section.
+      const newEnrollment = await tx.enrollment.create({
+        data: {
+          studentId: userId,
+          sectionId: input.targetSectionId,
+          status: EnrollmentStatus.ENROLLED,
+        },
+        select: {
+          id: true,
+          studentId: true,
+          sectionId: true,
+          status: true,
+          enrolledAt: true,
+        },
+      });
+
+      const updatedTarget = await tx.section.update({
+        where: { id: input.targetSectionId },
+        data: { enrolledCount: { increment: 1 } },
+        select: { capacity: true, enrolledCount: true },
+      });
+
+      await this.audit.recordEvent(tx, {
+        action: AuditAction.ENROLLMENT_SWAPPED,
+        actor: { userId, ipAddress: actor.ipAddress, userAgent: actor.userAgent },
+        target: { type: 'enrollment', id: newEnrollment.id },
+        before: {
+          enrollmentId: source.id,
+          sectionId: source.sectionId,
+          status: lockedSource.status,
+        },
+        after: {
+          enrollmentId: newEnrollment.id,
+          sectionId: newEnrollment.sectionId,
+          status: newEnrollment.status,
+        },
+      });
+
+      return {
+        result: {
+          ...newEnrollment,
+          enrolledAt: newEnrollment.enrolledAt.toISOString(),
+          sectionEnrolledCount: updatedTarget.enrolledCount,
+          sectionCapacity: updatedTarget.capacity,
+        } as EnrollmentResultDto,
+        freedSeatSectionId: (wasEnrolled ? source.sectionId : null) as string | null,
       };
     });
 

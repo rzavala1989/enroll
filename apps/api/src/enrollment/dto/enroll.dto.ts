@@ -18,6 +18,12 @@ export class EnrollDto {
   sectionId!: string;
 }
 
+export class SwapDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  targetSectionId!: string;
+}
+
 export class EnrollmentResultDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;

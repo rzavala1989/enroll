@@ -51,6 +51,11 @@ model User {
   enrollments   Enrollment[]
   notifications Notification[]
 
+  holds          AdvisorHold[]      @relation("StudentHolds")
+  holdsPlaced    AdvisorHold[]      @relation("AdvisorHolds")
+  overloads      OverloadApproval[] @relation("StudentOverloads")
+  overloadsGiven OverloadApproval[] @relation("AdvisorOverloads")
+
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   RefreshToken RefreshToken[]
@@ -81,9 +86,11 @@ model Term {
   endDate            DateTime
   registrationOpens  DateTime
   registrationCloses DateTime
+  maxCredits         Int      @default(18)
 
   sections            Section[]
   registrationWindows RegistrationWindow[]
+  overloadApprovals   OverloadApproval[]
 
   @@unique([season, year])
 }
@@ -216,6 +223,42 @@ model Notification {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+model AdvisorHold {
+  id String @id @default(uuid()) @db.Uuid
+
+  studentId String @db.Uuid
+  student   User   @relation("StudentHolds", fields: [studentId], references: [id])
+
+  advisorId String @db.Uuid
+  advisor   User   @relation("AdvisorHolds", fields: [advisorId], references: [id])
+
+  reason String
+
+  createdAt  DateTime  @default(now())
+  releasedAt DateTime?
+
+  @@index([studentId, releasedAt])
+}
+
+model OverloadApproval {
+  id String @id @default(uuid()) @db.Uuid
+
+  studentId String @db.Uuid
+  student   User   @relation("StudentOverloads", fields: [studentId], references: [id])
+
+  termId String @db.Uuid
+  term   Term   @relation(fields: [termId], references: [id])
+
+  approvedById String @db.Uuid
+  approvedBy   User   @relation("AdvisorOverloads", fields: [approvedById], references: [id])
+
+  maxCredits Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([studentId, termId])
 }
 
 model CoursePrerequisite {

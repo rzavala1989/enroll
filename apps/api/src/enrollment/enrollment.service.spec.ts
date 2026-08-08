@@ -28,7 +28,12 @@ describe('EnrollmentService', () => {
             meetingPattern: 'MWF 9:00-9:50',
             capacity: 20,
             enrolledCount: 20,
-            term: { registrationOpens: past, registrationCloses: future },
+            course: { credits: 4 },
+            term: {
+              registrationOpens: past,
+              registrationCloses: future,
+              maxCredits: 18,
+            },
           }),
         },
         user: {
@@ -60,6 +65,12 @@ describe('EnrollmentService', () => {
           findMany: jest.fn().mockResolvedValue([]),
         },
         registrationWindow: {
+          findUnique: jest.fn().mockResolvedValue(null),
+        },
+        advisorHold: {
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        overloadApproval: {
           findUnique: jest.fn().mockResolvedValue(null),
         },
       } as any;
@@ -175,7 +186,12 @@ describe('EnrollmentService', () => {
             meetingPattern: 'MWF 9:00-9:50',
             capacity: 30,
             enrolledCount: 10,
-            term: { registrationOpens: past, registrationCloses: future },
+            course: { credits: 4 },
+            term: {
+              registrationOpens: past,
+              registrationCloses: future,
+              maxCredits: 18,
+            },
           }),
           update: jest.fn().mockResolvedValue({ capacity: 30, enrolledCount: 11 }),
         },
@@ -204,6 +220,12 @@ describe('EnrollmentService', () => {
           findMany: jest.fn().mockResolvedValue([]),
         },
         registrationWindow: {
+          findUnique: jest.fn().mockResolvedValue(null),
+        },
+        advisorHold: {
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        overloadApproval: {
           findUnique: jest.fn().mockResolvedValue(null),
         },
       } as any;
@@ -286,7 +308,7 @@ describe('EnrollmentService', () => {
           section: {
             meetingPattern: 'MWF 9:00-9:50',
             sectionNumber: '002',
-            course: { code: 'CS201' },
+            course: { code: 'CS201', credits: 4 },
           },
         },
       ]);
@@ -306,7 +328,7 @@ describe('EnrollmentService', () => {
           section: {
             meetingPattern: 'TR 1:30-2:45',
             sectionNumber: '001',
-            course: { code: 'CS201' },
+            course: { code: 'CS201', credits: 4 },
           },
         },
       ]);
@@ -347,6 +369,109 @@ describe('EnrollmentService', () => {
     it('falls back to term registrationOpens when no standing window exists', async () => {
       const tx = baseTx();
       tx.registrationWindow.findUnique.mockResolvedValue(null);
+      const svc = buildService(tx);
+
+      const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);
+
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+    });
+
+    it('rejects when the student has an active advisor hold', async () => {
+      const tx = baseTx();
+      tx.advisorHold.findFirst.mockResolvedValue({
+        reason: 'Must meet with advisor before registering',
+      });
+      const svc = buildService(tx);
+
+      await expect(
+        svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'ADVISOR_HOLD' } });
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when adding a course would exceed the credit limit', async () => {
+      const tx = baseTx();
+      // Student already has 16 credits, trying to add a 4-credit course (20 > 18)
+      tx.enrollment.findMany.mockResolvedValue([
+        {
+          sectionId: 'sec-a',
+          section: {
+            meetingPattern: 'TR 8:00-9:15',
+            sectionNumber: '001',
+            course: { code: 'CS201', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-b',
+          section: {
+            meetingPattern: 'TR 11:00-12:15',
+            sectionNumber: '001',
+            course: { code: 'CS210', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-c',
+          section: {
+            meetingPattern: 'TR 1:30-2:45',
+            sectionNumber: '001',
+            course: { code: 'MATH201', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-d',
+          section: {
+            meetingPattern: 'TR 3:00-4:15',
+            sectionNumber: '001',
+            course: { code: 'PHYS201', credits: 4 },
+          },
+        },
+      ]);
+      const svc = buildService(tx);
+
+      await expect(
+        svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'CREDIT_LIMIT_EXCEEDED' } });
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
+    });
+
+    it('allows enrollment when an overload approval raises the credit cap', async () => {
+      const tx = baseTx();
+      // Same 16 credits as above, but advisor approved 21
+      tx.enrollment.findMany.mockResolvedValue([
+        {
+          sectionId: 'sec-a',
+          section: {
+            meetingPattern: 'TR 8:00-9:15',
+            sectionNumber: '001',
+            course: { code: 'CS201', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-b',
+          section: {
+            meetingPattern: 'TR 11:00-12:15',
+            sectionNumber: '001',
+            course: { code: 'CS210', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-c',
+          section: {
+            meetingPattern: 'TR 1:30-2:45',
+            sectionNumber: '001',
+            course: { code: 'MATH201', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-d',
+          section: {
+            meetingPattern: 'TR 3:00-4:15',
+            sectionNumber: '001',
+            course: { code: 'PHYS201', credits: 4 },
+          },
+        },
+      ]);
+      tx.overloadApproval.findUnique.mockResolvedValue({ maxCredits: 21 });
       const svc = buildService(tx);
 
       const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);

@@ -17,6 +17,11 @@ export interface DropRequest {
   studentId: string;
 }
 
+/** Body for PATCH /api/enrollments/:id/swap. */
+export interface SwapRequest {
+  targetSectionId: string;
+}
+
 /** Successful enrollment response. */
 export interface EnrollmentResult {
   id: string;
@@ -60,7 +65,10 @@ export type EnrollFailureCode =
   | 'PREREQUISITE_NOT_MET'
   | 'TIME_CONFLICT'
   | 'DUPLICATE_COURSE'
-  | 'REGISTRATION_NOT_OPEN';
+  | 'REGISTRATION_NOT_OPEN'
+  | 'ADVISOR_HOLD'
+  | 'CREDIT_LIMIT_EXCEEDED'
+  | 'SWAP_TARGET_FULL';
 
 export interface EnrollFailure {
   code: EnrollFailureCode;

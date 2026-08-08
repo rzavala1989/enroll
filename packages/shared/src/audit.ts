@@ -12,6 +12,7 @@ export enum AuditAction {
   SECTION_UPDATED = 'SECTION_UPDATED',
   /** Admin manually reordered a section's waitlist. */
   WAITLIST_REORDERED = 'WAITLIST_REORDERED',
+  ENROLLMENT_SWAPPED = 'ENROLLMENT_SWAPPED',
 }
 
 export type AuditTargetType = 'enrollment' | 'section' | 'course' | 'user' | 'auth';

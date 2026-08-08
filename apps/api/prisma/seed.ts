@@ -366,6 +366,8 @@ async function main(): Promise<void> {
 
   await prisma.notification.deleteMany({});
   await prisma.enrollment.deleteMany({});
+  await prisma.overloadApproval.deleteMany({});
+  await prisma.advisorHold.deleteMany({});
   await prisma.section.deleteMany({});
   await prisma.coursePrerequisite.deleteMany({});
   await prisma.course.deleteMany({});
@@ -615,6 +617,54 @@ async function main(): Promise<void> {
     `  inserted ${students.length} students (each with an advisor), ` +
       `${advisors.length} advisors, 2 admins`,
   );
+
+  // ── Advisor holds ─────────────────────────────────────────────────
+  // Three active holds and two released ones. Active holds block
+  // registration for those students; released holds show up in the
+  // history without blocking anything.
+  const holdReasons = [
+    'Schedule a degree audit meeting before registering',
+    'Outstanding tuition balance',
+    'Missing immunization records',
+  ];
+  for (let i = 0; i < 3; i++) {
+    const student = students[45 + i]; // freshmen near the end
+    const advisor = advisors[student.id ? i % advisors.length : 0];
+    await prisma.advisorHold.create({
+      data: {
+        studentId: student.id,
+        advisorId: advisor.id,
+        reason: holdReasons[i],
+      },
+    });
+  }
+  for (let i = 0; i < 2; i++) {
+    const student = students[i]; // seniors
+    await prisma.advisorHold.create({
+      data: {
+        studentId: student.id,
+        advisorId: advisors[0].id,
+        reason: 'Degree audit required before senior registration',
+        releasedAt: faker.date.recent({ days: 5 }),
+      },
+    });
+  }
+  console.log('  inserted 5 advisor holds (3 active, 2 released)');
+
+  // ── Overload approvals ───────────────────────────────────────────
+  // Two seniors approved to take up to 21 credits.
+  for (let i = 0; i < 2; i++) {
+    const student = students[i];
+    await prisma.overloadApproval.create({
+      data: {
+        studentId: student.id,
+        termId: fall2026.id,
+        approvedById: advisors[i % advisors.length].id,
+        maxCredits: 21,
+      },
+    });
+  }
+  console.log('  inserted 2 overload approvals');
 
   // ── Spring 2026 sections and COMPLETED enrollments ────────────────
   // Every 100-level course gets one section in Spring 2026 so students
