@@ -1,4 +1,4 @@
-import { Controller, Get, Res, VERSION_NEUTRAL, Version } from '@nestjs/common';
+import { Controller, Get, Res, VERSION_NEUTRAL } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import {
   ApiExcludeEndpoint,
@@ -22,12 +22,17 @@ import { HealthService, ReadinessReport } from './health.service';
  * endpoint answering both questions forces the orchestrator to guess.
  */
 @ApiTags('health')
-// Version and SkipThrottle are both typed MethodDecorator &
-// ClassDecorator. TypeScript resolves the intersection to the method
-// signature, so applying either to a class needs the cast.
-@(Version(VERSION_NEUTRAL) as ClassDecorator)
+// SkipThrottle is typed MethodDecorator & ClassDecorator; TypeScript
+// resolves the intersection to the method signature, so the class
+// application needs a cast. Its runtime handles both (it falls back to
+// `target` when there is no descriptor).
+//
+// @Version does NOT: Nest 11's implementation reads `descriptor.value`
+// unconditionally, so applying it to a class throws a TypeError at
+// import time and the process dies before Nest bootstraps. Class-level
+// versioning goes through @Controller's options object instead.
 @(SkipThrottle({ default: true }) as ClassDecorator)
-@Controller()
+@Controller({ version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(
     private readonly healthService: HealthService,

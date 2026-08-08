@@ -4,8 +4,14 @@
   "private": true,
   "description": "Course registration system for the UCR Senior Developer interview prep",
   "scripts": {
+    "setup": "./setup.sh",
+    "dev": "bash scripts/dev.sh",
+    "dev:postgres": "docker compose logs -f --tail=40 postgres",
+    "dev:redis": "docker compose logs -f --tail=40 redis",
+    "dev:mongo": "docker compose logs -f --tail=40 mongo",
     "dev:api": "pnpm --filter api start:dev",
     "dev:web": "pnpm --filter web dev",
+    "health": "node scripts/doctor.mjs",
     "db:migrate": "pnpm --filter api prisma migrate dev",
     "db:migrate:safe": "bash scripts/migrate-safe.sh",
     "db:studio": "pnpm --filter api prisma studio",
@@ -16,8 +22,19 @@
     "lint": "pnpm --filter api lint && pnpm --filter web lint",
     "test": "pnpm build:shared && pnpm --filter api test && pnpm --filter web test",
     "test:integration": "pnpm --filter api test:integration",
-    "infra:up": "docker compose up -d",
+    "infra:up": "docker compose up -d --wait postgres redis mongo",
     "infra:down": "docker compose down",
+    "infra:reset": "docker compose down -v --remove-orphans && docker compose up -d --wait postgres redis mongo",
+    "infra:logs": "docker compose logs -f",
+    "infra:ps": "docker compose ps",
+    "stack:up": "bash scripts/stack-up.sh",
+    "stack:down": "docker compose down",
+    "stack:rebuild": "docker compose up -d --build --wait --force-recreate api web",
+    "stack:logs": "docker compose logs -f api web",
+    "stack:ps": "docker compose ps",
+    "env:local": "bash scripts/env-switch.sh local",
+    "env:cloud": "bash scripts/env-switch.sh cloud",
+    "env:which": "bash scripts/env-switch.sh which",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "prepare": "husky"
   },
@@ -39,7 +56,8 @@
   "devDependencies": {
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "prettier": "^3.3.3"
+    "prettier": "^3.3.3",
+    "turbo": "^2.10.9"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,md,yml,yaml,css}": "prettier --write",

@@ -22,9 +22,11 @@ typings/
 # generated client lives under node_modules; nothing to ignore in repo
 
 # Environment
+# Broad by default: .env.cloud holds live Neon, Upstash, and Atlas
+# credentials, and .env.bak is whatever env-switch.sh rescued. Only the
+# committed example is allowed through.
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
 
 # IDE
@@ -62,3 +64,7 @@ LEARNED.md
 ch.md
 r1.md
 r2.md
+
+# Turbo
+.turbo/
+**/.turbo/

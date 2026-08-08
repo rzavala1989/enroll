@@ -1,0 +1,52 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+
+  // Splits `pnpm dev` into one scrollable pane per app instead of
+  // interleaving both watchers into a single stream, where a Nest stack
+  // trace and a Next recompile land on top of each other and neither is
+  // readable. Arrow keys switch panes.
+  "ui": "tui",
+
+  "globalEnv": ["API_URL", "PORT", "NODE_ENV"],
+
+  "tasks": {
+    // ^build is what makes @enroll/shared exist before anything imports
+    // it. The API resolves the package through tsconfig paths pointed at
+    // packages/shared/dist, which is gitignored, so a fresh clone that
+    // skips this step fails with a missing-export error that reads like
+    // a code bug rather than a missing build.
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+
+    // One pane per infrastructure service, tailing its container log.
+    //
+    // These follow the containers rather than running them. Turbo owning
+    // `docker compose up` would tie the database's lifetime to the dev
+    // session, so quitting the TUI would take Postgres down with it and
+    // undo the always-on setup. Tailing keeps the containers under their
+    // restart policy and still puts their output on screen.
+    //
+    // The `//#` prefix makes these root tasks, which is what lets them
+    // exist without inventing a workspace package per service.
+    "//#dev:postgres": { "cache": false, "persistent": true },
+    "//#dev:redis": { "cache": false, "persistent": true },
+    "//#dev:mongo": { "cache": false, "persistent": true },
+
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"]
+    }
+  }
+}

@@ -12,9 +12,19 @@ bible
 docs
 load
 *.log
+**/*.log
+
+# Secrets. The `**/` variants are the ones that matter: a bare `.env`
+# only matches the context root, so apps/api/.env and, worse,
+# apps/api/.env.cloud with live Neon and Upstash credentials were being
+# copied into every image. Keep the example, which carries no values.
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
+!**/.env.example
+
 .DS_Store
 .idea
 .vscode

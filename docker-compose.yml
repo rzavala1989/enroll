@@ -4,20 +4,32 @@
 # new contributor's first `pnpm dev:api` failed with a config error
 # about a dependency nobody had told them to install.
 #
-#   pnpm infra:up     start everything
-#   pnpm infra:down   stop it
+#   pnpm infra:up      start everything and wait for healthy
+#   pnpm infra:down    stop it, keep the data
+#   pnpm infra:reset   stop it and delete the volumes
+#
+# Host ports are deliberately NOT the defaults. A Homebrew postgres on
+# 5432 and redis on 6379 are common on a dev machine, and 5433 belongs
+# to another checkout, so binding those would either fail or, worse,
+# silently point the API at the wrong database. Override per-shell with
+# POSTGRES_PORT / REDIS_PORT / MONGO_PORT if these collide too; the
+# in-container ports never change.
 #
 # Data lives in named volumes, so a restart keeps your seed.
+
+name: enroll
 
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: enroll-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: enroll
       POSTGRES_PASSWORD: enroll
       POSTGRES_DB: enroll
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PORT:-5442}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -25,13 +37,16 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
+    container_name: enroll-redis
+    restart: unless-stopped
     # appendonly so a queued promotion job survives a container restart.
     command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - '6379:6379'
+      - '${REDIS_PORT:-6389}:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -39,18 +54,111 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 5s
 
   mongo:
     image: mongo:7
+    container_name: enroll-mongo
+    restart: unless-stopped
+    # Standalone, no replica set: the audit drain only does plain
+    # inserts and finds, never a transaction or a change stream.
+    #
+    # --quiet drops the per-connection accepted/ended lines. The audit
+    # drain reconnects on a timer, so without it this container writes
+    # several lines a second and its `pnpm dev` pane scrolls too fast to
+    # read anything that matters.
+    command: ['mongod', '--quiet']
     ports:
-      - '27017:27017'
+      - '${MONGO_PORT:-27027}:27017'
     volumes:
       - mongo-data:/data/db
     healthcheck:
+      # 30s, not 10s: mongosh opens a fresh connection per probe and
+      # mongod logs the handshake at info level whatever --quiet says,
+      # so a tighter interval is the single loudest thing in this
+      # container's log and it drowns the `pnpm dev` pane.
       test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping')"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 5
+      start_period: 15s
+
+  # ── Application ────────────────────────────────────────────────────
+  #
+  # These three read apps/api/.env.container, which setup.sh generates.
+  # It differs from .env.local in exactly one way that matters: the
+  # hostnames are the compose service names on their standard ports
+  # (postgres:5432), not localhost on the remapped host ports
+  # (localhost:5442). Inside the network the remapping does not exist.
+
+  # Runs to completion, then the API is allowed to start. Deliberately
+  # not part of the API's entrypoint: replicas starting together would
+  # race the same migration. `restart: no` so a reboot does not replay
+  # it; `pnpm stack:up` reruns it, which is when new migrations land.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migrate
+    container_name: enroll-migrate
+    restart: 'no'
+    env_file:
+      - apps/api/.env.container
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    container_name: enroll-api
+    restart: unless-stopped
+    env_file:
+      - apps/api/.env.container
+    environment:
+      # Overrides the value inherited from .env.local. This image is the
+      # production build with devDependencies stripped, so development
+      # mode asks pino for the pino-pretty transport, which is not there,
+      # and Nest dies at PinoLogger construction. Cost of production
+      # mode: Swagger at /api/docs is disabled, so use the host dev
+      # server when you want it.
+      NODE_ENV: production
+      # The web container proxies to this one, so req.ip is the proxy
+      # unless Express is told to read one X-Forwarded-For hop. Left at
+      # 0 the audit trail attributes every action to the web container.
+      TRUST_PROXY_HOPS: 1
+    ports:
+      - '${API_PORT:-3000}:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: runtime
+      args:
+        # Baked into the rewrite manifest at build time; see the comment
+        # in apps/web/Dockerfile.
+        API_URL: http://api:3000
+    container_name: enroll-web
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:3000
+    ports:
+      - '${WEB_PORT:-3001}:3001'
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   postgres-data:
