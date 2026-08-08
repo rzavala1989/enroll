@@ -360,6 +360,7 @@ async function main(): Promise<void> {
 
   await prisma.enrollment.deleteMany({});
   await prisma.section.deleteMany({});
+  await prisma.coursePrerequisite.deleteMany({});
   await prisma.course.deleteMany({});
   await prisma.term.deleteMany({});
   await prisma.user.deleteMany({});
@@ -377,6 +378,21 @@ async function main(): Promise<void> {
       endDate: new Date('2026-12-12'),
       registrationOpens: now,
       registrationCloses: closes,
+    },
+  });
+
+  // ── Spring 2026 term (past, closed) ────────────────────────────────
+  // Students who completed courses in this term satisfy prerequisites
+  // for Fall 2026. Registration is closed so nobody can enroll here;
+  // the term exists only for its COMPLETED enrollment rows.
+  const spring2026 = await prisma.term.create({
+    data: {
+      season: Season.SPRING,
+      year: 2026,
+      startDate: new Date('2026-01-06'),
+      endDate: new Date('2026-05-16'),
+      registrationOpens: new Date('2025-11-01'),
+      registrationCloses: new Date('2025-12-15'),
     },
   });
 
@@ -399,6 +415,53 @@ async function main(): Promise<void> {
     }
   }
   console.log(`  inserted ${allCourses.length} courses`);
+
+  // ── Prerequisites ────────────────────────────────────────────────
+  // Each department's 200-level courses require at least one 100-level
+  // course, 300-level require one 200-level, and 400-level require one
+  // 300-level. This produces a realistic DAG without circular deps.
+  const coursesByDept = new Map<string, typeof allCourses>();
+  for (const c of allCourses) {
+    const dept = c.code.replace(/\d+$/, '');
+    const list = coursesByDept.get(dept) ?? [];
+    list.push(c);
+    coursesByDept.set(dept, list);
+  }
+
+  let prereqCount = 0;
+  for (const [, courses] of coursesByDept) {
+    const byLevel = {
+      100: courses.filter((c) => c.level === 100),
+      200: courses.filter((c) => c.level === 200),
+      300: courses.filter((c) => c.level === 300),
+      400: courses.filter((c) => c.level === 400),
+    };
+
+    // 200-level courses require the first 100-level course
+    for (const c of byLevel[200]) {
+      await prisma.coursePrerequisite.create({
+        data: { courseId: c.id, prerequisiteId: byLevel[100][0].id },
+      });
+      prereqCount++;
+    }
+
+    // 300-level courses require the first 200-level course
+    for (const c of byLevel[300]) {
+      await prisma.coursePrerequisite.create({
+        data: { courseId: c.id, prerequisiteId: byLevel[200][0].id },
+      });
+      prereqCount++;
+    }
+
+    // 400-level courses require the first 300-level course
+    for (const c of byLevel[400]) {
+      await prisma.coursePrerequisite.create({
+        data: { courseId: c.id, prerequisiteId: byLevel[300][0].id },
+      });
+      prereqCount++;
+    }
+  }
+  console.log(`  inserted ${prereqCount} prerequisites`);
 
   // ── Sections ──────────────────────────────────────────────────────
   // Lower-division courses tend to have more sections; upper-division
@@ -513,6 +576,51 @@ async function main(): Promise<void> {
   console.log(
     `  inserted ${students.length} students (each with an advisor), ` +
       `${advisors.length} advisors, 2 admins`,
+  );
+
+  // ── Spring 2026 sections and COMPLETED enrollments ────────────────
+  // Every 100-level course gets one section in Spring 2026 so students
+  // have a transcript history. Each student gets 3-4 COMPLETED
+  // enrollments drawn from the 100-level pool, giving them the prereqs
+  // they need for most 200-level Fall 2026 registrations.
+  const spring100Courses = allCourses.filter((c) => c.level === 100);
+  const springSections: Array<{ id: string; courseId: string }> = [];
+
+  for (const course of spring100Courses) {
+    const created = await prisma.section.create({
+      data: {
+        courseId: course.id,
+        termId: spring2026.id,
+        sectionNumber: '001',
+        instructorName: `${faker.person.firstName()} ${faker.person.lastName()}`,
+        meetingPattern: faker.helpers.arrayElement(MEETING_PATTERNS),
+        room: faker.helpers.arrayElement(ROOMS),
+        capacity: 50,
+        enrolledCount: 0,
+      },
+    });
+    springSections.push({ id: created.id, courseId: course.id });
+  }
+
+  let completedCount = 0;
+  for (const student of students) {
+    const numCompleted = faker.number.int({ min: 3, max: 4 });
+    const picks = faker.helpers.arrayElements(springSections, numCompleted);
+    for (const section of picks) {
+      await prisma.enrollment.create({
+        data: {
+          studentId: student.id,
+          sectionId: section.id,
+          status: EnrollmentStatus.COMPLETED,
+          completedAt: new Date('2026-05-16'),
+        },
+      });
+      completedCount++;
+    }
+  }
+  console.log(
+    `  inserted ${springSections.length} spring sections, ` +
+      `${completedCount} completed enrollments`,
   );
 
   // ── Enrollments ───────────────────────────────────────────────────

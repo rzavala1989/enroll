@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { EnrollmentStatus } from '@prisma/client';
 
 import { EnrollmentService } from './enrollment.service';
@@ -23,24 +23,26 @@ describe('EnrollmentService', () => {
         section: {
           findUnique: jest.fn().mockResolvedValue({
             id: 'sec-1',
+            courseId: 'crs-1',
+            termId: 'term-1',
+            meetingPattern: 'MWF 9:00-9:50',
             capacity: 20,
             enrolledCount: 20,
             term: { registrationOpens: past, registrationCloses: future },
           }),
         },
         user: { findUnique: jest.fn().mockResolvedValue({ id: 'stu-1' }) },
-        $queryRaw: jest
-          .fn()
-          .mockResolvedValue([
-            {
-              id: 'sec-1',
-              capacity: 20,
-              enrolledCount: 20,
-              waitlistCap: opts.waitlistCap,
-            },
-          ]),
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'sec-1',
+            capacity: 20,
+            enrolledCount: 20,
+            waitlistCap: opts.waitlistCap,
+          },
+        ]),
         enrollment: {
           findFirst: jest.fn().mockResolvedValue(null),
+          findMany: jest.fn().mockResolvedValue([]),
           count: jest.fn().mockResolvedValue(opts.waiting),
           create: jest.fn().mockResolvedValue({
             id: 'enr-1',
@@ -49,6 +51,9 @@ describe('EnrollmentService', () => {
             status: EnrollmentStatus.WAITLISTED,
             enrolledAt: new Date('2026-07-01T10:00:00Z'),
           }),
+        },
+        coursePrerequisite: {
+          findMany: jest.fn().mockResolvedValue([]),
         },
       } as any;
     }
@@ -145,6 +150,157 @@ describe('EnrollmentService', () => {
       await expect(
         svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor),
       ).rejects.toMatchObject({ response: { code: 'SECTION_FULL' } });
+    });
+  });
+
+  describe('enroll (eligibility checks)', () => {
+    const past = new Date(Date.now() - 86_400_000);
+    const future = new Date(Date.now() + 86_400_000);
+    const actor = { userId: 'stu-1', ipAddress: null, userAgent: null };
+
+    function baseTx() {
+      return {
+        section: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'sec-1',
+            courseId: 'crs-1',
+            termId: 'term-1',
+            meetingPattern: 'MWF 9:00-9:50',
+            capacity: 30,
+            enrolledCount: 10,
+            term: { registrationOpens: past, registrationCloses: future },
+          }),
+          update: jest.fn().mockResolvedValue({ capacity: 30, enrolledCount: 11 }),
+        },
+        user: { findUnique: jest.fn().mockResolvedValue({ id: 'stu-1' }) },
+        $queryRaw: jest
+          .fn()
+          .mockResolvedValue([
+            { id: 'sec-1', capacity: 30, enrolledCount: 10, waitlistCap: null },
+          ]),
+        enrollment: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          findMany: jest.fn().mockResolvedValue([]),
+          create: jest.fn().mockResolvedValue({
+            id: 'enr-new',
+            studentId: 'stu-1',
+            sectionId: 'sec-1',
+            status: EnrollmentStatus.ENROLLED,
+            enrolledAt: new Date('2026-08-01T10:00:00Z'),
+          }),
+        },
+        coursePrerequisite: {
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+      } as any;
+    }
+
+    function buildService(tx: any) {
+      const prisma = {
+        $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
+      } as any;
+      const audit = { recordEvent: jest.fn().mockResolvedValue(undefined) } as any;
+      const waitlist = {
+        assignPosition: jest.fn().mockResolvedValue(1),
+        computeRank: jest.fn().mockResolvedValue(1),
+      } as any;
+      return makeEnrollmentService(prisma, audit, waitlist);
+    }
+
+    it('rejects when the student is already active in another section of the same course', async () => {
+      const tx = baseTx();
+      // First findFirst: active-row check (same section) => null
+      // Second findFirst: same-course check => found
+      tx.enrollment.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'enr-dup' });
+      const svc = buildService(tx);
+
+      await expect(
+        svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'DUPLICATE_COURSE' } });
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when prerequisites are not met', async () => {
+      const tx = baseTx();
+      tx.coursePrerequisite.findMany.mockResolvedValue([
+        { prerequisiteId: 'crs-prereq-1' },
+      ]);
+      // enrollment.findMany calls:
+      //   1st: prereq check (COMPLETED enrollments) => empty
+      //   2nd: time-conflict check => never reached
+      tx.enrollment.findMany.mockResolvedValueOnce([]);
+      const svc = buildService(tx);
+
+      await expect(
+        svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'PREREQUISITE_NOT_MET' } });
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
+    });
+
+    it('passes the prereq gate when the student has completed the prerequisite', async () => {
+      const tx = baseTx();
+      tx.coursePrerequisite.findMany.mockResolvedValue([
+        { prerequisiteId: 'crs-prereq-1' },
+      ]);
+      // enrollment.findMany calls:
+      //   1st: prereq check => student has completed the prereq
+      //   2nd: time-conflict check => no conflicts
+      tx.enrollment.findMany
+        .mockResolvedValueOnce([{ section: { courseId: 'crs-prereq-1' } }])
+        .mockResolvedValueOnce([]);
+      const svc = buildService(tx);
+
+      const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);
+
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+    });
+
+    it('rejects when the target section conflicts with an existing enrollment', async () => {
+      const tx = baseTx();
+      // enrollment.findMany calls:
+      //   1st: prereq check => no prereqs, so this is skipped... wait,
+      //        prereqs is empty so findMany for completed is never called.
+      //        The first findMany call is the time-conflict check.
+      tx.enrollment.findMany.mockResolvedValue([
+        {
+          sectionId: 'sec-other',
+          section: {
+            meetingPattern: 'MWF 9:00-9:50',
+            sectionNumber: '002',
+            course: { code: 'CS201' },
+          },
+        },
+      ]);
+      const svc = buildService(tx);
+
+      await expect(
+        svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'TIME_CONFLICT' } });
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
+    });
+
+    it('allows enrollment when meeting patterns do not overlap', async () => {
+      const tx = baseTx();
+      tx.enrollment.findMany.mockResolvedValue([
+        {
+          sectionId: 'sec-other',
+          section: {
+            meetingPattern: 'TR 1:30-2:45',
+            sectionNumber: '001',
+            course: { code: 'CS201' },
+          },
+        },
+      ]);
+      const svc = buildService(tx);
+
+      const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);
+
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
     });
   });
 

@@ -86,7 +86,9 @@ model Course {
   description String?
   credits     Int
 
-  sections Section[]
+  sections       Section[]
+  prerequisites  CoursePrerequisite[] @relation("CoursePrereqs")
+  prerequisiteOf CoursePrerequisite[] @relation("PrereqOf")
 
   // Generated FTS column maintained by Postgres (see migration
   // 20260428070000_add_course_fts: GENERATED ALWAYS AS ... STORED).
@@ -192,6 +194,19 @@ model Notification {
 
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+model CoursePrerequisite {
+  id String @id @default(uuid()) @db.Uuid
+
+  courseId String @db.Uuid
+  course  Course @relation("CoursePrereqs", fields: [courseId], references: [id])
+
+  prerequisiteId String @db.Uuid
+  prerequisite   Course @relation("PrereqOf", fields: [prerequisiteId], references: [id])
+
+  @@unique([courseId, prerequisiteId])
+  @@index([prerequisiteId])
 }
 
 // Phase 5 audit outbox. Rows are written inside the same Postgres

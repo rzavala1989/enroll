@@ -56,7 +56,10 @@ export type EnrollFailureCode =
   | 'ALREADY_DROPPED'
   | 'REGISTRATION_CLOSED'
   | 'SECTION_NOT_FOUND'
-  | 'STUDENT_NOT_FOUND';
+  | 'STUDENT_NOT_FOUND'
+  | 'PREREQUISITE_NOT_MET'
+  | 'TIME_CONFLICT'
+  | 'DUPLICATE_COURSE';
 
 export interface EnrollFailure {
   code: EnrollFailureCode;

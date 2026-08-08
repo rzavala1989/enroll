@@ -16,6 +16,7 @@ import { WaitlistService } from '../waitlist/waitlist.service';
 import { EnrollDto, EnrollmentResultDto } from './dto/enroll.dto';
 import { ListMyEnrollmentsQueryDto } from './dto/list-my-enrollments-query.dto';
 import { MyEnrollmentDto } from './dto/my-enrollment.dto';
+import { hasTimeConflict } from './time-conflict';
 
 @Injectable()
 export class EnrollmentService {
@@ -63,6 +64,9 @@ export class EnrollmentService {
         where: { id: input.sectionId },
         select: {
           id: true,
+          courseId: true,
+          termId: true,
+          meetingPattern: true,
           capacity: true,
           enrolledCount: true,
           term: {
@@ -180,6 +184,77 @@ export class EnrollmentService {
               }
             : {}),
         };
+      }
+
+      // Same-course duplicate: a student cannot hold active enrollments
+      // in two different sections of the same course.
+      const sameCourse = await tx.enrollment.findFirst({
+        where: {
+          studentId: userId,
+          status: { in: [EnrollmentStatus.ENROLLED, EnrollmentStatus.WAITLISTED] },
+          section: { courseId: section.courseId },
+          NOT: { sectionId: input.sectionId },
+        },
+        select: { id: true },
+      });
+      if (sameCourse) {
+        throw new ConflictException({
+          code: 'DUPLICATE_COURSE',
+          message: 'You are already enrolled in another section of this course.',
+        });
+      }
+
+      // Prerequisite gate: every course in CoursePrerequisite for the
+      // target course must appear in the student's COMPLETED history.
+      const prereqs = await tx.coursePrerequisite.findMany({
+        where: { courseId: section.courseId },
+        select: { prerequisiteId: true },
+      });
+      if (prereqs.length > 0) {
+        const completedRows = await tx.enrollment.findMany({
+          where: {
+            studentId: userId,
+            status: EnrollmentStatus.COMPLETED,
+          },
+          select: { section: { select: { courseId: true } } },
+        });
+        const completed = new Set(completedRows.map((r) => r.section.courseId));
+        const missing = prereqs.filter((p) => !completed.has(p.prerequisiteId));
+        if (missing.length > 0) {
+          throw new BadRequestException({
+            code: 'PREREQUISITE_NOT_MET',
+            message: 'You have not completed all prerequisite courses.',
+          });
+        }
+      }
+
+      // Time-conflict check: compare the target section's meeting pattern
+      // against every section the student is already active in this term.
+      const myActive = await tx.enrollment.findMany({
+        where: {
+          studentId: userId,
+          status: { in: [EnrollmentStatus.ENROLLED, EnrollmentStatus.WAITLISTED] },
+          section: { termId: section.termId },
+        },
+        select: {
+          sectionId: true,
+          section: {
+            select: {
+              meetingPattern: true,
+              sectionNumber: true,
+              course: { select: { code: true } },
+            },
+          },
+        },
+      });
+      for (const existing of myActive) {
+        if (existing.sectionId === input.sectionId) continue;
+        if (hasTimeConflict(section.meetingPattern, existing.section.meetingPattern)) {
+          throw new ConflictException({
+            code: 'TIME_CONFLICT',
+            message: `Schedule conflict with ${existing.section.course.code} section ${existing.section.sectionNumber}.`,
+          });
+        }
       }
 
       // Seat available means enroll. Otherwise, waitlist.
