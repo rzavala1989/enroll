@@ -59,7 +59,9 @@ export class AuthController {
    * because a legitimate human never needs a sixth try in a minute.
    */
   @Post('login')
-  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Throttle({
+    default: { ttl: 60_000, limit: parseInt(process.env.LOGIN_RATE_LIMIT ?? '5', 10) },
+  })
   @HttpCode(200)
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const tokens = await this.auth.login(dto);

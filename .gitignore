@@ -66,6 +66,9 @@ ch.md
 r1.md
 r2.md
 
+# Load test results
+load-test/results/
+
 # Turbo
 .turbo/
 **/.turbo/

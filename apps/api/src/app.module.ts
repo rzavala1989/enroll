@@ -64,7 +64,13 @@ import { WaitlistModule } from './waitlist/waitlist.module';
      * scheme burns families and logs real users out.
      */
     ThrottlerModule.forRoot({
-      throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
+      throttlers: [
+        {
+          name: 'default',
+          ttl: 60_000,
+          limit: parseInt(process.env.THROTTLE_LIMIT ?? '120', 10),
+        },
+      ],
     }),
 
     ScheduleModule.forRoot(),

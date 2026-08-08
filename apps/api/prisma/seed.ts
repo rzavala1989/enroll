@@ -458,27 +458,35 @@ async function main(): Promise<void> {
   // insert an FK-free batch of users could otherwise use.
   const placeholderHash = await bcrypt.hash('password', 10);
 
-  async function makeUser(role: Role, provider: string) {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
-    return prisma.user.create({
-      data: {
-        email: faker.internet.email({ firstName, lastName, provider }).toLowerCase(),
-        firstName,
-        lastName,
-        roles: [role],
-        passwordHash: placeholderHash,
-      },
-    });
-  }
-
   const advisors = [];
   for (let i = 0; i < 5; i++) {
-    advisors.push(await makeUser(Role.ADVISOR, 'ucr.edu'));
+    const firstName = faker.person.firstName();
+    const lastName = faker.person.lastName();
+    advisors.push(
+      await prisma.user.create({
+        data: {
+          email: `advisor${String(i + 1).padStart(2, '0')}@ucr.edu`,
+          firstName,
+          lastName,
+          roles: [Role.ADVISOR],
+          passwordHash: placeholderHash,
+        },
+      }),
+    );
   }
 
   for (let i = 0; i < 2; i++) {
-    await makeUser(Role.ADMIN, 'ucr.edu');
+    const firstName = faker.person.firstName();
+    const lastName = faker.person.lastName();
+    await prisma.user.create({
+      data: {
+        email: `admin${String(i + 1).padStart(2, '0')}@ucr.edu`,
+        firstName,
+        lastName,
+        roles: [Role.ADMIN],
+        passwordHash: placeholderHash,
+      },
+    });
   }
 
   // Round-robin rather than random: every advisor ends up with 9 or 10
@@ -492,9 +500,7 @@ async function main(): Promise<void> {
     const lastName = faker.person.lastName();
     const created = await prisma.user.create({
       data: {
-        email: faker.internet
-          .email({ firstName, lastName, provider: 'student.ucr.edu' })
-          .toLowerCase(),
+        email: `student${String(i + 1).padStart(2, '0')}@student.ucr.edu`,
         firstName,
         lastName,
         roles: [Role.STUDENT],

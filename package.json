@@ -36,6 +36,10 @@
     "env:cloud": "bash scripts/env-switch.sh cloud",
     "env:which": "bash scripts/env-switch.sh which",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "k6:smoke": "k6 run load-test/smoke.js",
+    "k6:rush": "K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT=load-test/results/rush-dashboard.html k6 run load-test/registration-rush.js",
+    "k6:browse": "K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT=load-test/results/browse-dashboard.html k6 run load-test/catalog-browse.js",
+    "k6:all": "pnpm k6:smoke && pnpm k6:rush && pnpm k6:browse",
     "prepare": "husky"
   },
   "engines": {
