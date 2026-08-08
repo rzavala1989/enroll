@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import type { StudentProfile } from '@enroll/shared';
 import type { Env } from '../config/env';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -103,6 +104,13 @@ export class AuthController {
   @ApiOkResponse({ type: MeResponseDto })
   me(@CurrentUser() user: JwtPayload): Promise<MeResponseDto> {
     return this.auth.me(user.sub);
+  }
+
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Student dashboard profile data' })
+  profile(@CurrentUser() user: JwtPayload): Promise<StudentProfile> {
+    return this.auth.profile(user.sub);
   }
 
   private setTokenCookies(

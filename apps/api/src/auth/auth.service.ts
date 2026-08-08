@@ -1,6 +1,8 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { EnrollmentStatus } from '@prisma/client';
+import type { StudentProfile } from '@enroll/shared';
 import type { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { randomBytes, createHash } from 'crypto';
@@ -122,11 +124,117 @@ export class AuthService {
   async me(userId: string): Promise<MeResponseDto> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, firstName: true, lastName: true, roles: true },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        roles: true,
+        classStanding: true,
+        advisor: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
     });
-    // A valid JWT for a deleted user: treat as logged out.
     if (!user) throw new UnauthorizedException();
-    return user;
+    return {
+      ...user,
+      classStanding: user.classStanding ?? null,
+      advisor: user.advisor ?? null,
+    };
+  }
+
+  async profile(userId: string): Promise<StudentProfile> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        classStanding: true,
+        advisor: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
+    });
+    if (!user) throw new UnauthorizedException();
+
+    // Active holds on this student.
+    const holds = await this.prisma.advisorHold.findMany({
+      where: { studentId: userId, releasedAt: null },
+      select: {
+        id: true,
+        reason: true,
+        createdAt: true,
+        advisor: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Current (most recent open) term.
+    const now = new Date();
+    const term = await this.prisma.term.findFirst({
+      where: { registrationCloses: { gte: now } },
+      orderBy: { startDate: 'asc' },
+      select: { id: true, season: true, year: true, maxCredits: true },
+    });
+
+    let currentTerm: StudentProfile['currentTerm'] = null;
+    if (term) {
+      const activeEnrollments = await this.prisma.enrollment.findMany({
+        where: {
+          studentId: userId,
+          status: { in: [EnrollmentStatus.ENROLLED, EnrollmentStatus.WAITLISTED] },
+          section: { termId: term.id },
+        },
+        select: {
+          status: true,
+          section: { select: { course: { select: { credits: true } } } },
+        },
+      });
+
+      const enrolled = activeEnrollments.filter(
+        (e) => e.status === EnrollmentStatus.ENROLLED,
+      );
+      const waitlisted = activeEnrollments.filter(
+        (e) => e.status === EnrollmentStatus.WAITLISTED,
+      );
+
+      const overload = await this.prisma.overloadApproval.findUnique({
+        where: { studentId_termId: { studentId: userId, termId: term.id } },
+        select: { maxCredits: true },
+      });
+
+      currentTerm = {
+        id: term.id,
+        name: `${term.season.charAt(0)}${term.season.slice(1).toLowerCase()} ${term.year}`,
+        enrolledCredits: enrolled.reduce((sum, e) => sum + e.section.course.credits, 0),
+        enrolledCourses: enrolled.length,
+        waitlistedCourses: waitlisted.length,
+        maxCredits: term.maxCredits,
+        overloadMaxCredits: overload?.maxCredits ?? null,
+      };
+    }
+
+    // Total completed credits across all terms.
+    const completedRows = await this.prisma.enrollment.findMany({
+      where: { studentId: userId, status: EnrollmentStatus.COMPLETED },
+      select: { section: { select: { course: { select: { credits: true } } } } },
+    });
+    const completedCredits = completedRows.reduce(
+      (sum, e) => sum + e.section.course.credits,
+      0,
+    );
+
+    return {
+      classStanding: user.classStanding ?? null,
+      advisor: user.advisor ?? null,
+      currentTerm,
+      holds: holds.map((h) => ({
+        id: h.id,
+        reason: h.reason,
+        advisorName: `${h.advisor.firstName} ${h.advisor.lastName}`,
+        createdAt: h.createdAt.toISOString(),
+      })),
+      completedCredits,
+    };
   }
 
   // ── Private helpers ─────────────────────────────────

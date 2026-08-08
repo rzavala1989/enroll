@@ -34,17 +34,28 @@
   /* Type: one family, three optical roles, instead of three unrelated
      ones. Serif for the handful of moments that need real weight, sans
      for everything you read, mono for everything you count. */
-  --font-display: var(--font-plex-serif);
-  --font-sans: var(--font-plex-sans);
-  --font-mono: var(--font-plex-mono);
+  --font-display: var(--font-crimson);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jb-mono);
 
   --radius-sm: 3px;
+
+  /* Department accent colors: muted, institutional tones that pair
+     with the warm paper ground. Used for catalog section markers. */
+  --color-dept-cs: #1a5276;
+  --color-dept-math: #6c3483;
+  --color-dept-engl: #935116;
+  --color-dept-phys: #1a6e6e;
+  --color-dept-biol: #1e6e3e;
+  --color-dept-hist: #8c2f24;
+  --color-dept-psyc: #4b3c87;
+  --color-dept-econ: #2c3e50;
 }
 
 body {
   background: var(--color-paper);
   color: var(--color-ink);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
 }
 
 ::selection {

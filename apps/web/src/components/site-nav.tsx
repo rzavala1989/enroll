@@ -7,7 +7,6 @@ import { Role } from '@enroll/shared';
 import type { AuthUser } from '@enroll/shared';
 
 import { CrestMark } from '@/components/crest-mark';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/cn';
 
 function BellIcon() {
@@ -29,7 +28,7 @@ function BellIcon() {
   );
 }
 
-function NavLink({
+function NavTab({
   href,
   label,
   active,
@@ -42,14 +41,29 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        'rounded-sm px-2.5 py-1.5 text-sm font-medium transition-colors',
-        active
-          ? 'bg-pine text-paper'
-          : 'text-paper/70 hover:bg-white/10 hover:text-paper',
+        'relative px-4 py-2.5 text-sm font-medium transition-colors',
+        active ? 'text-pine-dark' : 'text-ink-soft hover:text-ink',
       )}
     >
       {label}
+      {active && (
+        <span
+          className="absolute bottom-0 left-4 right-4 h-0.5 bg-pine"
+          aria-hidden="true"
+        />
+      )}
     </Link>
+  );
+}
+
+function UserInitial({ name }: { name: string }) {
+  return (
+    <span
+      className="flex h-8 w-8 items-center justify-center rounded-full bg-pine text-xs font-semibold text-paper"
+      aria-hidden="true"
+    >
+      {name.charAt(0).toUpperCase()}
+    </span>
   );
 }
 
@@ -62,6 +76,7 @@ export function SiteNav({
 }) {
   const pathname = usePathname();
   const [signingOut, setSigningOut] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   if (pathname === '/login') return null;
 
@@ -70,7 +85,6 @@ export function SiteNav({
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } finally {
-      // Navigate to /login regardless: a failed request shouldn't strand the button.
       window.location.assign('/login');
     }
   }
@@ -79,69 +93,165 @@ export function SiteNav({
   const staffRole = identity?.roles.find((r) => r === Role.ADMIN || r === Role.ADVISOR);
 
   return (
-    <header className="border-b-2 border-pine bg-ink">
-      <div className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-2.5">
-        <Link href="/catalog" className="flex items-center gap-2.5">
-          <CrestMark className="h-7 w-7" />
-          <span className="font-display text-lg font-semibold text-paper">Enroll</span>
-        </Link>
-        <nav className="flex items-center gap-1">
-          <NavLink
+    <header className="border-b border-line bg-card">
+      {/* Top bar: branding and user */}
+      <div className="bg-ink">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-2">
+          <Link
+            href="/catalog"
+            className="flex items-center gap-3 rounded px-2 py-1.5 transition-colors hover:bg-white/10"
+          >
+            <CrestMark className="h-8 w-8" />
+            <div className="flex items-baseline gap-2">
+              <span className="font-display text-lg font-semibold text-paper">
+                Enroll
+              </span>
+              <span className="hidden text-xs text-paper/40 sm:inline">
+                University of California, Riverside
+              </span>
+            </div>
+          </Link>
+
+          <div className="flex items-center gap-3">
+            {!identity && (
+              <Link
+                href="/login"
+                className="rounded-sm bg-pine px-4 py-1.5 text-sm font-medium text-paper transition-colors hover:bg-pine-dark"
+              >
+                Sign in
+              </Link>
+            )}
+            {identity && (
+              <>
+                <Link
+                  href="/notifications"
+                  aria-label={
+                    unreadCount > 0
+                      ? `Notifications, ${unreadCount} unread`
+                      : 'Notifications'
+                  }
+                  className={cn(
+                    'relative rounded-sm p-1.5 transition-colors',
+                    pathname.startsWith('/notifications')
+                      ? 'bg-white/15 text-paper'
+                      : 'text-paper/60 hover:text-paper',
+                  )}
+                >
+                  <BellIcon />
+                  {unreadCount > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-full px-1 font-mono text-[10px] font-semibold tabular-nums text-paper"
+                    >
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </Link>
+
+                <div className="relative">
+                  <button
+                    onClick={() => setMenuOpen(!menuOpen)}
+                    className="flex items-center gap-2 rounded-sm p-1 transition-colors hover:bg-white/10"
+                    aria-expanded={menuOpen}
+                    aria-haspopup="true"
+                  >
+                    <UserInitial name={identity.firstName} />
+                    <span className="hidden text-sm text-paper/80 sm:inline">
+                      {identity.firstName}
+                    </span>
+                    <svg
+                      viewBox="0 0 12 12"
+                      width="10"
+                      height="10"
+                      fill="none"
+                      aria-hidden="true"
+                      className="hidden text-paper/50 sm:inline"
+                    >
+                      <path
+                        d="M3 4.5 6 7.5 9 4.5"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+
+                  {menuOpen && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setMenuOpen(false)}
+                        aria-hidden="true"
+                      />
+                      <div className="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-sm border border-line bg-card py-1 shadow-lg">
+                        <div className="border-b border-line px-4 py-3">
+                          <p className="text-sm font-medium text-ink">
+                            {identity.firstName} {identity.lastName}
+                          </p>
+                          <p className="mt-0.5 text-xs text-ink-soft">{identity.email}</p>
+                          {staffRole && (
+                            <span className="mt-1.5 inline-block rounded-sm bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber">
+                              {staffRole}
+                            </span>
+                          )}
+                        </div>
+                        <div className="py-1">
+                          <Link
+                            href="/profile"
+                            onClick={() => setMenuOpen(false)}
+                            className="block px-4 py-2 text-sm text-ink hover:bg-paper"
+                          >
+                            Profile
+                          </Link>
+                          <Link
+                            href="/notifications"
+                            onClick={() => setMenuOpen(false)}
+                            className="block px-4 py-2 text-sm text-ink hover:bg-paper"
+                          >
+                            Notifications
+                            {unreadCount > 0 && (
+                              <span className="ml-2 font-mono text-xs text-full">
+                                {unreadCount}
+                              </span>
+                            )}
+                          </Link>
+                        </div>
+                        <div className="border-t border-line py-1">
+                          <button
+                            onClick={signOut}
+                            disabled={signingOut}
+                            className="block w-full px-4 py-2 text-left text-sm text-ink hover:bg-paper disabled:opacity-50"
+                          >
+                            {signingOut ? 'Signing out...' : 'Sign out'}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation tabs */}
+      <div className="mx-auto max-w-5xl px-4">
+        <nav className="flex items-center" aria-label="Main navigation">
+          <NavTab
             href="/catalog"
             label="Catalog"
-            active={pathname.startsWith('/catalog')}
+            active={pathname.startsWith('/catalog') || pathname.startsWith('/courses')}
           />
           {isStudent && (
-            <NavLink
+            <NavTab
               href="/enrollments"
-              label="My enrollments"
+              label="My courses"
               active={pathname.startsWith('/enrollments')}
             />
           )}
         </nav>
-        {/* The proxy should make a null identity unreachable outside
-            /login, which returns early above. Rendering the identity
-            cluster for nobody is the kind of thing that only shows up
-            once the guard has a hole, so guard here too. */}
-        {identity && (
-          <div className="ml-auto flex items-center gap-4">
-            <Link
-              href="/notifications"
-              aria-label={
-                unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
-              }
-              className={cn(
-                'relative rounded-sm p-1.5 transition-colors',
-                pathname.startsWith('/notifications')
-                  ? 'bg-pine text-paper'
-                  : 'text-paper/70 hover:bg-white/10 hover:text-paper',
-              )}
-            >
-              <BellIcon />
-              {unreadCount > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-sm bg-amber px-1 font-mono text-[10px] font-semibold tabular-nums text-paper"
-                >
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </Link>
-            <div className="flex items-center gap-3 border-l border-white/15 pl-4">
-              <span className="flex items-center gap-2 text-sm text-paper/90">
-                {identity.firstName} {identity.lastName}
-                {staffRole && <Badge tone="amber">{staffRole}</Badge>}
-              </span>
-              <button
-                onClick={signOut}
-                disabled={signingOut}
-                className="rounded-sm border border-white/25 px-2 py-1 text-xs text-paper/80 transition-colors hover:border-white/50 hover:text-paper disabled:opacity-50"
-              >
-                {signingOut ? 'Signing out' : 'Sign out'}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </header>
   );

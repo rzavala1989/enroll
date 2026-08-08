@@ -3,8 +3,8 @@
  *
  * Wipes Enrollment, Section, Course, Term, User in dependency order
  * and reinserts a realistic set of data: one Fall 2026 term, 152
- * courses spread across 8 departments with 1-3 sections apiece, 57
- * users (50 students each assigned one of 5 advisors, 2 admins), a
+ * courses spread across 8 departments with 1-3 sections apiece, 1027
+ * users (1000 students each assigned one of 25 advisors, 2 admins), a
  * real Enrollment for every student's course load (enrolled, some
  * waitlisted where demand exceeds capacity, a few dropped), and a
  * handful of waitlist-promotion and waitlist-expiry Notifications.
@@ -550,8 +550,8 @@ async function main(): Promise<void> {
   // insert an FK-free batch of users could otherwise use.
   const placeholderHash = await bcrypt.hash('password', 10);
 
-  const advisors = [];
-  for (let i = 0; i < 5; i++) {
+  const advisors: Array<{ id: string }> = [];
+  for (let i = 0; i < 25; i++) {
     const firstName = faker.person.firstName();
     const lastName = faker.person.lastName();
     advisors.push(
@@ -581,38 +581,41 @@ async function main(): Promise<void> {
     });
   }
 
-  // Round-robin rather than random: every advisor ends up with 9 or 10
+  // Round-robin rather than random: every advisor ends up with 40
   // advisees instead of the lumpy distribution a random pick would
   // produce, and the ownership check in EnrollmentOwnershipGuard has
   // something to actually scope against for every advisor, not just
   // the lucky ones.
-  // Standing distribution: 8 seniors, 14 juniors, 16 sophomores, 12
-  // freshmen. Roughly mirrors real attrition patterns and gives every
-  // priority tier enough students to generate visible data.
+  // Standing distribution: 160 seniors, 280 juniors, 320 sophomores,
+  // 240 freshmen. Roughly mirrors real attrition patterns and gives
+  // every priority tier enough students to generate visible data.
   function standingFor(i: number): ClassStanding {
-    if (i < 8) return ClassStanding.SENIOR;
-    if (i < 22) return ClassStanding.JUNIOR;
-    if (i < 38) return ClassStanding.SOPHOMORE;
+    if (i < 160) return ClassStanding.SENIOR;
+    if (i < 440) return ClassStanding.JUNIOR;
+    if (i < 760) return ClassStanding.SOPHOMORE;
     return ClassStanding.FRESHMAN;
   }
 
-  const students = [];
-  for (let i = 0; i < 50; i++) {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
-    const created = await prisma.user.create({
-      data: {
-        email: `student${String(i + 1).padStart(2, '0')}@student.ucr.edu`,
-        firstName,
-        lastName,
-        roles: [Role.STUDENT],
-        classStanding: standingFor(i),
-        passwordHash: placeholderHash,
-        advisorId: advisors[i % advisors.length].id,
-      },
-    });
-    students.push({ id: created.id });
-  }
+  const STUDENT_COUNT = 1000;
+  const studentData = Array.from({ length: STUDENT_COUNT }, (_, i) => ({
+    email: `student${String(i + 1).padStart(4, '0')}@student.ucr.edu`,
+    firstName: faker.person.firstName(),
+    lastName: faker.person.lastName(),
+    roles: [Role.STUDENT],
+    classStanding: standingFor(i),
+    passwordHash: placeholderHash,
+    advisorId: advisors[i % advisors.length].id,
+  }));
+
+  // Batch inserts: createMany is far faster than 1000 individual creates,
+  // but does not return generated ids. Follow up with a single findMany.
+  await prisma.user.createMany({ data: studentData });
+  const studentRows = await prisma.user.findMany({
+    where: { roles: { has: Role.STUDENT } },
+    select: { id: true },
+    orderBy: { email: 'asc' },
+  });
+  const students = studentRows.map((r) => ({ id: r.id }));
   console.log(
     `  inserted ${students.length} students (each with an advisor), ` +
       `${advisors.length} advisors, 2 admins`,
@@ -626,34 +629,41 @@ async function main(): Promise<void> {
     'Schedule a degree audit meeting before registering',
     'Outstanding tuition balance',
     'Missing immunization records',
+    'Academic probation review required',
+    'Incomplete course evaluation forms',
+    'Financial aid verification pending',
+    'Mandatory orientation not completed',
+    'Transfer credit evaluation in progress',
   ];
-  for (let i = 0; i < 3; i++) {
-    const student = students[45 + i]; // freshmen near the end
-    const advisor = advisors[student.id ? i % advisors.length : 0];
+  // Active holds on 15 freshmen near the end of the list.
+  for (let i = 0; i < 15; i++) {
+    const student = students[STUDENT_COUNT - 20 + i];
+    const advisor = advisors[i % advisors.length];
     await prisma.advisorHold.create({
       data: {
         studentId: student.id,
         advisorId: advisor.id,
-        reason: holdReasons[i],
+        reason: holdReasons[i % holdReasons.length],
       },
     });
   }
-  for (let i = 0; i < 2; i++) {
-    const student = students[i]; // seniors
+  // Released holds on 10 seniors.
+  for (let i = 0; i < 10; i++) {
+    const student = students[i];
     await prisma.advisorHold.create({
       data: {
         studentId: student.id,
-        advisorId: advisors[0].id,
+        advisorId: advisors[i % advisors.length].id,
         reason: 'Degree audit required before senior registration',
         releasedAt: faker.date.recent({ days: 5 }),
       },
     });
   }
-  console.log('  inserted 5 advisor holds (3 active, 2 released)');
+  console.log('  inserted 25 advisor holds (15 active, 10 released)');
 
   // ── Overload approvals ───────────────────────────────────────────
-  // Two seniors approved to take up to 21 credits.
-  for (let i = 0; i < 2; i++) {
+  // 20 seniors approved to take up to 21 credits.
+  for (let i = 0; i < 20; i++) {
     const student = students[i];
     await prisma.overloadApproval.create({
       data: {
@@ -664,7 +674,7 @@ async function main(): Promise<void> {
       },
     });
   }
-  console.log('  inserted 2 overload approvals');
+  console.log('  inserted 20 overload approvals');
 
   // ── Spring 2026 sections and COMPLETED enrollments ────────────────
   // Every 100-level course gets one section in Spring 2026 so students
