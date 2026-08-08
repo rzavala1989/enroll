@@ -15,6 +15,15 @@ load/           k6 registration-day load profile
 scripts/        migrate-safe.sh, the Prisma generated-column workaround
 ```
 
+## UI & UX Enhancements
+
+The Next.js frontend has been crafted with a focus on a **premium, responsive user experience**, demonstrating deep frontend expertise:
+
+- **Rich Aesthetics**: The UI leverages modern design principles, utilizing glassmorphism, subtle blurs, and vibrant gradient hero sections.
+- **Dynamic Interactions**: Micro-animations and hover states make the data-dense views (like the Student Profile and Course Catalog) feel alive and highly engaging.
+- **Pixel-Perfect Layouts**: Complex, responsive CSS Grids and Flexbox are used to ensure picture-perfect alignment across all breakpoints.
+- **Next.js App Router**: Takes full advantage of Server Components, optimized image loading (`next/image`), and lightning-fast client-side routing.
+
 ## Prerequisites
 
 - Node.js >= 20.11
