@@ -31,9 +31,15 @@ export function useToast() {
 }
 
 const kindStyles: Record<ToastInput['kind'], string> = {
-  success: 'border-open bg-open-soft text-open',
-  error: 'border-full bg-full-soft text-full',
-  info: 'border-wait bg-wait-soft text-wait',
+  success: 'bg-open-soft text-open',
+  error: 'bg-full-soft text-full',
+  info: 'bg-wait-soft text-wait',
+};
+
+const kindDot: Record<ToastInput['kind'], string> = {
+  success: 'bg-open',
+  error: 'bg-full',
+  info: 'bg-wait',
 };
 
 const kindRole: Record<ToastInput['kind'], 'status' | 'alert'> = {
@@ -92,10 +98,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             role={kindRole[t.kind]}
             className={cn(
-              'pointer-events-auto flex items-start gap-2 rounded-sm border-l-4 p-3 shadow-md',
+              'pointer-events-auto flex items-start gap-2.5 rounded-sm border border-line p-3 shadow-sm',
               kindStyles[t.kind],
             )}
           >
+            <span
+              aria-hidden="true"
+              className={cn('mt-1.5 h-2 w-2 shrink-0', kindDot[t.kind])}
+            />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold">{t.title}</p>
               {t.detail && <p className="mt-0.5 text-xs text-ink-soft">{t.detail}</p>}

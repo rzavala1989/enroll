@@ -40,9 +40,7 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <section
-      className={cn('rounded-sm border border-dashed border-line bg-card p-5', className)}
-    >
+    <section className={cn('rounded-sm border border-line bg-card p-5', className)}>
       <h2 className="font-display text-base font-semibold text-ink">{title}</h2>
       <p className="mt-1 max-w-prose text-sm text-ink-soft">{body}</p>
 

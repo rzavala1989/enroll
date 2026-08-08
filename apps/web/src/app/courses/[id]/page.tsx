@@ -4,6 +4,7 @@ import { Role } from '@enroll/shared';
 import type { CourseDetail } from '@enroll/shared';
 
 import { Badge } from '@/components/ui/badge';
+import { SeatMeter } from '@/components/ui/seat-meter';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { apiGet } from '@/lib/api/server';
 import { getIdentity } from '@/lib/identity';
@@ -12,9 +13,12 @@ import { seatStatus } from '@/lib/seat-status';
 import { EnrollButton } from './enroll-button';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const seatTone = { open: 'open', 'nearly-full': 'amber', full: 'full' } as const;
 
-export default async function CoursePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CoursePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();
 
@@ -35,7 +39,9 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
         <span className="font-mono text-lg font-bold text-pine">{course.code}</span>
         <Badge tone="neutral">{course.credits} credits</Badge>
       </div>
-      <h1 className="font-display mt-1 text-3xl font-bold text-pine-dark">{course.title}</h1>
+      <h1 className="font-display mt-1 text-3xl font-bold text-pine-dark">
+        {course.title}
+      </h1>
       {course.description && (
         <p className="mt-3 max-w-2xl text-sm text-ink-soft">{course.description}</p>
       )}
@@ -63,19 +69,22 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
                   <TD>{s.meetingPattern}</TD>
                   <TD>{s.room}</TD>
                   <TD>
-                    <Badge tone={seatTone[status]}>
-                      {status === 'full'
-                        ? 'Full'
-                        : `${s.seatsAvailable} of ${s.capacity} open`}
-                      {s.waitlistCount > 0 && ` · ${s.waitlistCount} waiting`}
-                    </Badge>
+                    <SeatMeter
+                      enrolled={s.capacity - s.seatsAvailable}
+                      capacity={s.capacity}
+                      waitlistCount={s.waitlistCount}
+                    />
                   </TD>
                   <TD className="text-right">
                     {isStudent && (
                       <EnrollButton
                         sectionId={s.id}
                         full={status === 'full'}
-                        waitlistFull={status === 'full' && s.waitlistCap != null && s.waitlistCount >= s.waitlistCap}
+                        waitlistFull={
+                          status === 'full' &&
+                          s.waitlistCap != null &&
+                          s.waitlistCount >= s.waitlistCap
+                        }
                         viewerEnrollment={s.viewerEnrollment}
                       />
                     )}

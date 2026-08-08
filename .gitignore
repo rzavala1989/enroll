@@ -53,6 +53,7 @@ coverage/
 *.tgz
 .eslintcache
 .cache/
+repomix-output.xml
 # Agent tooling config, anywhere in the tree. The root-only rule let
 # apps/api/src/.claude/settings.local.json (absolute paths from one
 # maintainer's machine) into git.

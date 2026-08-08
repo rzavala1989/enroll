@@ -4,7 +4,6 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 
 export function LoginForm({ next }: { next: string }) {
   const [email, setEmail] = useState('');
@@ -27,7 +26,9 @@ export function LoginForm({ next }: { next: string }) {
         window.location.assign(next);
         return;
       }
-      setError(res.status === 401 ? 'Invalid email or password.' : 'Sign in failed. Try again.');
+      setError(
+        res.status === 401 ? 'Invalid email or password.' : 'Sign in failed. Try again.',
+      );
     } catch {
       setError('Sign in failed. Try again.');
     }
@@ -35,39 +36,37 @@ export function LoginForm({ next }: { next: string }) {
   }
 
   return (
-    <Card className="mt-6">
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <label className="text-sm font-medium">
-          Email
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-sm border border-line bg-paper px-2 py-1.5 text-sm focus:border-pine focus:outline-none"
-          />
-        </label>
-        <label className="text-sm font-medium">
-          Password
-          <input
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-sm border border-line bg-paper px-2 py-1.5 text-sm focus:border-pine focus:outline-none"
-          />
-        </label>
-        {error && (
-          <p role="alert" className="text-sm text-full">
-            {error}
-          </p>
-        )}
-        <Button type="submit" disabled={pending}>
-          {pending ? 'Signing in' : 'Sign in'}
-        </Button>
-      </form>
-    </Card>
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <label className="text-sm font-medium">
+        Email
+        <input
+          type="email"
+          required
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="mt-1.5 w-full rounded-sm border border-line bg-card px-2.5 py-2 text-sm focus:border-pine focus:outline-none"
+        />
+      </label>
+      <label className="text-sm font-medium">
+        Password
+        <input
+          type="password"
+          required
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="mt-1.5 w-full rounded-sm border border-line bg-card px-2.5 py-2 text-sm focus:border-pine focus:outline-none"
+        />
+      </label>
+      {error && (
+        <p role="alert" className="text-sm text-full">
+          {error}
+        </p>
+      )}
+      <Button type="submit" disabled={pending} className="mt-1">
+        {pending ? 'Signing in' : 'Sign in'}
+      </Button>
+    </form>
   );
 }

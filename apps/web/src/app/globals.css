@@ -1,40 +1,52 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Surfaces and text */
-  --color-paper: #faf7f2;
-  --color-card: #fffdf9;
-  --color-ink: #211d19;
-  --color-ink-soft: #6b6258;
-  --color-line: #e4dccf;
+  /* Surfaces and text: warm paper ground, deep navy ink. A registrar's
+     ledger, not a SaaS dashboard, paper is where forms live and ink is
+     what fills them out. */
+  --color-paper: #f2f0e8;
+  --color-card: #ffffff;
+  --color-card-sunk: #eae6da;
+  --color-ink: #15243c;
+  --color-ink-soft: #57617a;
+  --color-line: #ddd8c8;
+  --color-line-strong: #c7c0a9;
 
-  /* Institutional pine */
-  --color-pine: #1e4d3b;
-  --color-pine-dark: #143527;
-  --color-pine-soft: #e2ede6;
+  /* Institutional pine: the one accent used for anything actionable. */
+  --color-pine: #14513c;
+  --color-pine-dark: #0b3527;
+  --color-pine-soft: #e1eae3;
 
-  /* Action amber */
-  --color-amber: #a84d05;
-  --color-amber-soft: #fdf0e0;
+  /* Action amber, reserved for secondary emphasis, never chrome. */
+  --color-amber: #8a4b10;
+  --color-amber-soft: #f5e9d8;
 
-  /* Seat and status colors */
-  --color-open: #1a7a43;
-  --color-open-soft: #e2f2e8;
-  --color-full: #b3261e;
-  --color-full-soft: #f9e6e4;
-  --color-wait: #6d28d9;
-  --color-wait-soft: #efe9fb;
+  /* Seat and status colors. Oxblood and plum instead of stock red/purple:
+     saturated enough to carry meaning at a glance, dark enough to sit
+     quietly in a dense table. */
+  --color-open: #14513c;
+  --color-open-soft: #e1eae3;
+  --color-full: #8c2f24;
+  --color-full-soft: #f4e3df;
+  --color-wait: #4b3c87;
+  --color-wait-soft: #eae6f5;
 
-  /* Type */
-  --font-display: var(--font-fraunces);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Type: one family, three optical roles, instead of three unrelated
+     ones. Serif for the handful of moments that need real weight, sans
+     for everything you read, mono for everything you count. */
+  --font-display: var(--font-plex-serif);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
 
-  --radius-sm: 4px;
+  --radius-sm: 3px;
 }
 
 body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-pine) 20%, transparent);
 }
