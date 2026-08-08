@@ -579,6 +579,7 @@ export class EnrollmentService {
           studentId: true,
           sectionId: true,
           status: true,
+          enrolledAt: true,
           section: {
             select: {
               courseId: true,
@@ -614,8 +615,7 @@ export class EnrollmentService {
             studentId: source.studentId,
             sectionId: source.sectionId,
             status: source.status,
-            enrolledAt:
-              (source as any).enrolledAt?.toISOString?.() ?? new Date().toISOString(),
+            enrolledAt: source.enrolledAt?.toISOString() ?? new Date().toISOString(),
             sectionEnrolledCount: sec?.enrolledCount ?? 0,
             sectionCapacity: sec?.capacity ?? 0,
           } as EnrollmentResultDto,

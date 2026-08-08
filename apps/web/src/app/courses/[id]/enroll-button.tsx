@@ -35,7 +35,6 @@ export function EnrollButton({
   const toast = useToast();
   const [pending, setPending] = useState(false);
   const [done, setDone] = useState<string | null>(() => initialDone(viewerEnrollment));
-  const [error, setError] = useState<string | null>(null);
 
   /**
    * Resync when the server's view of this section changes.
@@ -56,7 +55,6 @@ export function EnrollButton({
 
   async function enroll() {
     setPending(true);
-    setError(null);
     try {
       const result = await apiFetch<EnrollmentResult>('/enrollments', {
         method: 'POST',
@@ -79,11 +77,14 @@ export function EnrollButton({
       }
       router.refresh();
     } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? enrollErrorMessage(e.body?.code, e.message)
-          : 'Something went wrong. Try again.',
-      );
+      toast.push({
+        kind: 'error',
+        title: 'Enrollment failed',
+        detail:
+          e instanceof ApiError
+            ? enrollErrorMessage(e.body?.code, e.message)
+            : 'Something went wrong. Try again.',
+      });
     } finally {
       setPending(false);
     }
@@ -104,11 +105,6 @@ export function EnrollButton({
       <Button variant={full ? 'ghost' : 'primary'} onClick={enroll} disabled={pending}>
         {pending ? 'Working' : full ? 'Join waitlist' : 'Enroll'}
       </Button>
-      {error && (
-        <p role="alert" className="text-xs text-full">
-          {error}
-        </p>
-      )}
     </div>
   );
 }

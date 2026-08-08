@@ -221,6 +221,9 @@ export class CoursesService {
           where: { termId: activeTermId },
           orderBy: { sectionNumber: 'asc' },
         },
+        prerequisites: {
+          include: { prerequisite: { select: { id: true, code: true, title: true } } },
+        },
       },
     });
 
@@ -256,6 +259,7 @@ export class CoursesService {
       description: course.description,
       credits: course.credits,
       sections,
+      prerequisites: (course.prerequisites ?? []).map((p) => p.prerequisite),
     };
   }
 

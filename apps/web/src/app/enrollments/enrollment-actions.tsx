@@ -20,23 +20,27 @@ export function EnrollmentActions({
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const isWaitlisted = status === EnrollmentStatus.WAITLISTED;
   const verb = isWaitlisted ? 'Leave waitlist' : 'Drop';
 
   async function drop() {
     setPending(true);
-    setError(null);
     try {
-      await apiFetch<EnrollmentResult>(`/enrollments/${enrollmentId}/drop`, { method: 'PATCH' });
+      await apiFetch<EnrollmentResult>(`/enrollments/${enrollmentId}/drop`, {
+        method: 'PATCH',
+      });
       toast.push({
         kind: 'success',
         title: isWaitlisted ? 'Left the waitlist' : 'Dropped',
       });
       router.refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Something went wrong. Try again.');
+      toast.push({
+        kind: 'error',
+        title: 'Action failed',
+        detail: e instanceof ApiError ? e.message : 'Something went wrong. Try again.',
+      });
       setPending(false);
       setConfirming(false);
     }
@@ -48,11 +52,6 @@ export function EnrollmentActions({
         <Button variant="danger" onClick={() => setConfirming(true)}>
           {verb}
         </Button>
-        {error && (
-          <p role="alert" className="text-xs text-full">
-            {error}
-          </p>
-        )}
       </div>
     );
   }

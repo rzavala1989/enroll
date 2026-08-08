@@ -83,6 +83,12 @@ export interface Section {
   viewerEnrollment?: ViewerEnrollment | null;
 }
 
+export interface CoursePrerequisiteRef {
+  id: string;
+  code: string;
+  title: string;
+}
+
 /** Full course detail with sections for the active term. */
 export interface CourseDetail {
   id: string;
@@ -91,4 +97,5 @@ export interface CourseDetail {
   description: string | null;
   credits: number;
   sections: Section[];
+  prerequisites: CoursePrerequisiteRef[];
 }

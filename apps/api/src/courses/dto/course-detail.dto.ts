@@ -4,6 +4,17 @@ import type { CourseDetail } from '@enroll/shared';
 
 import { SectionDto } from './section.dto';
 
+export class CoursePrerequisiteRefDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: 'CS101' })
+  code!: string;
+
+  @ApiProperty()
+  title!: string;
+}
+
 /** Full course detail with sections for the active term. */
 export class CourseDetailDto implements CourseDetail {
   @ApiProperty({ format: 'uuid' })
@@ -23,4 +34,7 @@ export class CourseDetailDto implements CourseDetail {
 
   @ApiProperty({ type: [SectionDto] })
   sections!: SectionDto[];
+
+  @ApiProperty({ type: [CoursePrerequisiteRefDto] })
+  prerequisites!: CoursePrerequisiteRefDto[];
 }

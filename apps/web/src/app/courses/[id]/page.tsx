@@ -42,6 +42,22 @@ export default async function CoursePage({
       <h1 className="font-display mt-1 text-3xl font-bold text-pine-dark">
         {course.title}
       </h1>
+      {course.prerequisites.length > 0 && (
+        <div className="mt-3 flex items-center gap-2 text-sm">
+          <span className="font-semibold text-ink-soft">Prerequisites:</span>
+          <div className="flex flex-wrap gap-2">
+            {course.prerequisites.map((p) => (
+              <Link
+                key={p.id}
+                href={`/courses/${p.id}`}
+                className="hover:opacity-80 transition-opacity"
+              >
+                <Badge tone="pine">{p.code}</Badge>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
       {course.description && (
         <p className="mt-3 max-w-2xl text-sm text-ink-soft">{course.description}</p>
       )}

@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import type { BadgeTone } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { apiGet } from '@/lib/api/server';
-import { deptFromCode, deptLabel, DEPT_IMAGES, DEPT_COLORS } from '@/lib/departments';
+import { deptFromCode, DEPT_IMAGES, DEPT_COLORS } from '@/lib/departments';
 
 import { EnrollmentActions } from './enrollment-actions';
 

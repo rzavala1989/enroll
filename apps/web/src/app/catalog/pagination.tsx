@@ -2,7 +2,6 @@ import Link from 'next/link';
 
 import type { CatalogParams } from '@/lib/catalog-params';
 import { serializeCatalogParams } from '@/lib/catalog-params';
-import { cn } from '@/lib/cn';
 
 function pageHref(params: CatalogParams, to: number): string {
   const qs = serializeCatalogParams({ ...params, page: to });
