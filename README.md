@@ -204,11 +204,101 @@ Two things do not survive a naive scale-out:
 Migrations belong in a release step that runs once, not in a container entrypoint
 where replicas would race each other.
 
+## Registration rules
+
+The enrollment transaction validates a fixed sequence of checks before granting or
+waitlisting a seat. Each check is cheaper than the next, so the system rejects early
+and avoids locking when it can.
+
+1. **Section exists** and its term's registration window has not closed.
+2. **Student exists** in the system.
+3. **Standing-aware registration window.** If the term defines per-standing open
+   dates (e.g., seniors register Monday, freshmen register Thursday), the student's
+   class standing must have an open window. Falls back to the term's
+   `registrationOpens` when no per-standing row exists.
+4. **Advisor hold.** An `AdvisorHold` with a null `releasedAt` blocks all
+   registration until an advisor releases it.
+5. **Row lock.** `SELECT ... FOR UPDATE` on the Section row serializes concurrent
+   seat allocation.
+6. **Active-row check.** A student who is already ENROLLED or WAITLISTED in the
+   same section gets the existing row returned (idempotent).
+7. **Same-course duplicate.** A student cannot hold active enrollments in two
+   different sections of the same course.
+8. **Prerequisites.** Every `CoursePrerequisite` edge for the target course must
+   map to a COMPLETED enrollment in the student's history.
+9. **Time conflicts.** The target section's `meetingPattern` is compared against
+   every section the student is active in for the same term. Patterns like
+   `MWF 9:00-9:50` and `TR 1:30-2:45` are parsed into day+minute slots for
+   overlap detection.
+10. **Credit limit.** The student's active credits in the term plus the target
+    course's credits cannot exceed `Term.maxCredits`, unless an
+    `OverloadApproval` raises their personal cap.
+11. **Capacity or waitlist.** If a seat is free, the student gets ENROLLED. If
+    not, they join the waitlist (subject to the section's waitlist cap).
+
+### Section swap
+
+`PATCH /api/v1/enrollments/:id/swap` with `{ targetSectionId }` atomically drops
+the source enrollment and enrolls in the target section within a single
+transaction. Both sections are locked in ID order to prevent deadlocks.
+
+The swap fails (keeping the source enrollment intact) if the target section is
+full. Waitlisting on swap is not supported: a student who wants a waitlist spot
+should drop and enroll separately.
+
+All eligibility checks apply to the target section, with two adjustments:
+
+- Time conflicts and credit limits exclude the source section, since it is being
+  vacated.
+- The same-course duplicate check is skipped when both sections belong to the
+  same course.
+
+When the source enrollment was ENROLLED, the old section's counter is decremented
+and a waitlist promotion is enqueued, exactly as with a regular drop.
+
+## Data model
+
+The Prisma schema (`apps/api/prisma/schema.prisma`) defines the full data model.
+Additions beyond the base enrollment tables:
+
+| Model                | Purpose                                                 |
+| -------------------- | ------------------------------------------------------- |
+| `CoursePrerequisite` | DAG of course dependencies (self-referential on Course) |
+| `RegistrationWindow` | Per-standing open dates for a term                      |
+| `AdvisorHold`        | Blocks registration until `releasedAt` is set           |
+| `OverloadApproval`   | Per-student credit cap override for a specific term     |
+
+`User.classStanding` is a nullable `ClassStanding` enum (FRESHMAN through SENIOR).
+`Term.maxCredits` defaults to 18 and is the baseline credit cap.
+
+## Future work
+
+Two planned phases are not yet built.
+
+**AI degree advisor.** An LLM-backed endpoint that reads a student's transcript
+(completed enrollments), their program requirements, and the current catalog to
+suggest a next-semester schedule. Would use structured output from the model to
+produce a ranked list of section recommendations with reasoning. The main design
+question is whether to run it synchronously (slow but simple) or queue it as a
+background job and notify when ready.
+
+**Grades, instructor role, and tuition.** Three related features that close the
+registration lifecycle:
+
+- A `grade` column on Enrollment, set by a new INSTRUCTOR role scoped to their
+  own sections. The COMPLETED status transition would become grade-gated rather
+  than manual.
+- Tuition calculation: credit-hour rates, fee schedules, and a billing summary
+  endpoint. Probably a separate `Billing` module rather than bolting it onto
+  enrollment.
+- An instructor dashboard for viewing rosters, entering grades, and managing
+  section settings.
+
 ## Further reading
 
-- `apps/api/prisma/schema.prisma` for the data model, with the locking and
-  constraint rationale in comments
-- `apps/api/src/enrollment/enrollment.service.ts` for seat allocation under row locks
+- `apps/api/prisma/schema.prisma` for the data model, constraints, and index rationale
+- `apps/api/src/enrollment/enrollment.service.ts` for enroll, drop, and swap under row locks
+- `apps/api/src/enrollment/time-conflict.ts` for meeting pattern parsing and overlap detection
 - `apps/web/src/proxy.ts` for the session gate and single-flight token refresh
 - `load/registration-day.js` for what to measure before a real registration day
 - `bible/` for the chapter-by-chapter build record (local only, not in git)

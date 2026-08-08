@@ -728,6 +728,388 @@ describe('EnrollmentService', () => {
     });
   });
 
+  describe('swap', () => {
+    const past = new Date(Date.now() - 86_400_000);
+    const future = new Date(Date.now() + 86_400_000);
+    const actor = { userId: 'stu-1', ipAddress: null, userAgent: null };
+
+    function swapTx(overrides: Record<string, any> = {}) {
+      return {
+        enrollment: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'enr-old',
+            studentId: 'stu-1',
+            sectionId: 'sec-old',
+            status: EnrollmentStatus.ENROLLED,
+            enrolledAt: new Date('2026-08-01T10:00:00Z'),
+            waitlistPosition: null,
+            section: {
+              courseId: 'crs-1',
+              termId: 'term-1',
+              meetingPattern: 'MWF 9:00-9:50',
+              course: { credits: 4 },
+            },
+          }),
+          findFirst: jest.fn().mockResolvedValue(null),
+          findMany: jest.fn().mockResolvedValue([]),
+          update: jest.fn().mockResolvedValue({}),
+          create: jest.fn().mockResolvedValue({
+            id: 'enr-new',
+            studentId: 'stu-1',
+            sectionId: 'sec-new',
+            status: EnrollmentStatus.ENROLLED,
+            enrolledAt: new Date('2026-08-08T10:00:00Z'),
+          }),
+        },
+        section: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'sec-new',
+            courseId: overrides.targetCourseId ?? 'crs-1',
+            termId: 'term-1',
+            meetingPattern: overrides.targetMeeting ?? 'MWF 10:00-10:50',
+            capacity: 30,
+            enrolledCount: overrides.targetEnrolled ?? 10,
+            course: { credits: overrides.targetCredits ?? 4 },
+            term: {
+              registrationOpens: past,
+              registrationCloses: future,
+              maxCredits: 18,
+            },
+          }),
+          update: jest.fn().mockResolvedValue({ capacity: 30, enrolledCount: 11 }),
+        },
+        user: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ id: 'stu-1', classStanding: 'SENIOR' }),
+        },
+        $queryRaw: jest
+          .fn()
+          .mockImplementation(async () => [
+            {
+              id: 'sec-new',
+              capacity: 30,
+              enrolledCount: overrides.targetEnrolled ?? 10,
+            },
+          ]),
+        registrationWindow: {
+          findUnique: jest.fn().mockResolvedValue(null),
+        },
+        advisorHold: {
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        coursePrerequisite: {
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        overloadApproval: {
+          findUnique: jest.fn().mockResolvedValue(null),
+        },
+        ...overrides.txOverrides,
+      } as any;
+    }
+
+    function swapService(tx: any) {
+      const prisma = {
+        $transaction: jest.fn().mockImplementation(async (cb: any) => cb(tx)),
+      } as any;
+      const audit = { recordEvent: jest.fn().mockResolvedValue(undefined) } as any;
+      const waitlist = {
+        enqueuePromotion: jest.fn().mockResolvedValue(undefined),
+      } as any;
+      return { svc: makeEnrollmentService(prisma, audit, waitlist), audit, waitlist };
+    }
+
+    it('swaps between sections of the same course', async () => {
+      const tx = swapTx();
+      const { svc, waitlist } = swapService(tx);
+
+      const result = await svc.swap(
+        'enr-old',
+        { targetSectionId: 'sec-new' },
+        'stu-1',
+        actor,
+      );
+
+      expect(result.id).toBe('enr-new');
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+      expect(result.sectionId).toBe('sec-new');
+      // Old enrollment dropped.
+      expect(tx.enrollment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'enr-old' },
+          data: expect.objectContaining({ status: EnrollmentStatus.DROPPED }),
+        }),
+      );
+      // Old section counter decremented (was ENROLLED).
+      expect(tx.section.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'sec-old' },
+          data: { enrolledCount: { decrement: 1 } },
+        }),
+      );
+      // Waitlist promotion enqueued for the old section.
+      expect(waitlist.enqueuePromotion).toHaveBeenCalledWith('sec-old');
+    });
+
+    it('rejects when the target section is full', async () => {
+      const tx = swapTx({ targetEnrolled: 30 });
+      // Override the raw query to return full capacity too.
+      tx.$queryRaw = jest
+        .fn()
+        .mockResolvedValue([{ id: 'sec-new', capacity: 30, enrolledCount: 30 }]);
+      const { svc } = swapService(tx);
+
+      await expect(
+        svc.swap('enr-old', { targetSectionId: 'sec-new' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'SWAP_TARGET_FULL' } });
+      // Source enrollment stays intact.
+      expect(tx.enrollment.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the source enrollment is already dropped', async () => {
+      const tx = swapTx();
+      tx.enrollment.findUnique.mockResolvedValue({
+        id: 'enr-old',
+        studentId: 'stu-1',
+        sectionId: 'sec-old',
+        status: EnrollmentStatus.DROPPED,
+        section: {
+          courseId: 'crs-1',
+          termId: 'term-1',
+          meetingPattern: 'MWF 9:00-9:50',
+          course: { credits: 4 },
+        },
+      });
+      const { svc } = swapService(tx);
+
+      await expect(
+        svc.swap('enr-old', { targetSectionId: 'sec-new' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'ALREADY_DROPPED' } });
+    });
+
+    it('returns the existing enrollment when swapping to the same section', async () => {
+      const tx = swapTx();
+      tx.enrollment.findUnique.mockResolvedValue({
+        id: 'enr-old',
+        studentId: 'stu-1',
+        sectionId: 'sec-old',
+        status: EnrollmentStatus.ENROLLED,
+        enrolledAt: new Date('2026-08-01T10:00:00Z'),
+        section: {
+          courseId: 'crs-1',
+          termId: 'term-1',
+          meetingPattern: 'MWF 9:00-9:50',
+          course: { credits: 4 },
+        },
+      });
+      tx.section.findUnique.mockResolvedValue({ capacity: 30, enrolledCount: 10 });
+      const { svc } = swapService(tx);
+
+      const result = await svc.swap(
+        'enr-old',
+        { targetSectionId: 'sec-old' },
+        'stu-1',
+        actor,
+      );
+
+      expect(result.id).toBe('enr-old');
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+      expect(tx.enrollment.update).not.toHaveBeenCalled();
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects on time conflict with a third enrollment', async () => {
+      const tx = swapTx({ targetMeeting: 'TR 1:30-2:45' });
+      tx.enrollment.findMany.mockResolvedValue([
+        {
+          sectionId: 'sec-third',
+          section: {
+            meetingPattern: 'TR 1:30-2:45',
+            sectionNumber: '003',
+            course: { code: 'MATH201', credits: 3 },
+          },
+        },
+      ]);
+      const { svc } = swapService(tx);
+
+      await expect(
+        svc.swap('enr-old', { targetSectionId: 'sec-new' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'TIME_CONFLICT' } });
+    });
+
+    it('excludes the source section from credit limit calculations', async () => {
+      // Student has 14 credits from other courses (not the source).
+      // Source is 4 credits, target is 4 credits. Net change is 0.
+      // Total should be 14 + 4 = 18, which equals the cap.
+      const tx = swapTx();
+      tx.enrollment.findMany.mockResolvedValue([
+        {
+          sectionId: 'sec-a',
+          section: {
+            meetingPattern: 'TR 8:00-9:15',
+            sectionNumber: '001',
+            course: { code: 'CS201', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-b',
+          section: {
+            meetingPattern: 'TR 11:00-12:15',
+            sectionNumber: '001',
+            course: { code: 'CS210', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-c',
+          section: {
+            meetingPattern: 'TR 3:00-4:15',
+            sectionNumber: '001',
+            course: { code: 'PHYS201', credits: 3 },
+          },
+        },
+        {
+          sectionId: 'sec-d',
+          section: {
+            meetingPattern: 'TR 4:30-5:45',
+            sectionNumber: '001',
+            course: { code: 'ENG101', credits: 3 },
+          },
+        },
+      ]);
+      const { svc } = swapService(tx);
+
+      // 14 (other) + 4 (target) = 18 = cap. Should pass.
+      const result = await svc.swap(
+        'enr-old',
+        { targetSectionId: 'sec-new' },
+        'stu-1',
+        actor,
+      );
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+    });
+
+    it('rejects when the credit limit is exceeded after swap', async () => {
+      // Student has 15 credits from other courses, target is 4.
+      // 15 + 4 = 19 > 18 cap.
+      const tx = swapTx();
+      tx.enrollment.findMany.mockResolvedValue([
+        {
+          sectionId: 'sec-a',
+          section: {
+            meetingPattern: 'TR 8:00-9:15',
+            sectionNumber: '001',
+            course: { code: 'CS201', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-b',
+          section: {
+            meetingPattern: 'TR 11:00-12:15',
+            sectionNumber: '001',
+            course: { code: 'CS210', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-c',
+          section: {
+            meetingPattern: 'TR 3:00-4:15',
+            sectionNumber: '001',
+            course: { code: 'PHYS201', credits: 4 },
+          },
+        },
+        {
+          sectionId: 'sec-d',
+          section: {
+            meetingPattern: 'TR 4:30-5:45',
+            sectionNumber: '001',
+            course: { code: 'ENG101', credits: 3 },
+          },
+        },
+      ]);
+      const { svc } = swapService(tx);
+
+      await expect(
+        svc.swap('enr-old', { targetSectionId: 'sec-new' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'CREDIT_LIMIT_EXCEEDED' } });
+    });
+
+    it('does not enqueue waitlist promotion when swapping from a waitlisted enrollment', async () => {
+      const tx = swapTx();
+      tx.enrollment.findUnique.mockResolvedValue({
+        id: 'enr-old',
+        studentId: 'stu-1',
+        sectionId: 'sec-old',
+        status: EnrollmentStatus.WAITLISTED,
+        enrolledAt: new Date('2026-08-01T10:00:00Z'),
+        waitlistPosition: 3,
+        section: {
+          courseId: 'crs-1',
+          termId: 'term-1',
+          meetingPattern: 'MWF 9:00-9:50',
+          course: { credits: 4 },
+        },
+      });
+      const { svc, waitlist } = swapService(tx);
+
+      const result = await svc.swap(
+        'enr-old',
+        { targetSectionId: 'sec-new' },
+        'stu-1',
+        actor,
+      );
+
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+      // No seat was freed; WAITLISTED -> DROPPED does not decrement.
+      expect(waitlist.enqueuePromotion).not.toHaveBeenCalled();
+    });
+
+    it('rejects when an advisor hold is active', async () => {
+      const tx = swapTx();
+      tx.advisorHold.findFirst.mockResolvedValue({
+        reason: 'Academic probation',
+      });
+      const { svc } = swapService(tx);
+
+      await expect(
+        svc.swap('enr-old', { targetSectionId: 'sec-new' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'ADVISOR_HOLD' } });
+    });
+
+    it('checks prerequisites when swapping to a different course', async () => {
+      const tx = swapTx({ targetCourseId: 'crs-2' });
+      tx.coursePrerequisite.findMany.mockResolvedValue([
+        { prerequisiteId: 'crs-prereq-1' },
+      ]);
+      // No completed enrollments matching the prereq.
+      tx.enrollment.findMany.mockResolvedValueOnce([]);
+      const { svc } = swapService(tx);
+
+      await expect(
+        svc.swap('enr-old', { targetSectionId: 'sec-new' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'PREREQUISITE_NOT_MET' } });
+    });
+
+    it('skips the same-course duplicate check for same-course swaps', async () => {
+      // Both source and target are crs-1. The student already has an active
+      // enrollment in sec-old (which is being swapped away), so findFirst
+      // for the duplicate check should not be called at all.
+      const tx = swapTx();
+      const { svc } = swapService(tx);
+
+      const result = await svc.swap(
+        'enr-old',
+        { targetSectionId: 'sec-new' },
+        'stu-1',
+        actor,
+      );
+
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+      // findFirst is only used for the dup check in swap, and for same-course
+      // swaps it should be skipped entirely.
+      expect(tx.enrollment.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
   describe('findOne', () => {
     it('populates droppedAt and completedAt when present', async () => {
       const prisma = {

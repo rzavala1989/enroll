@@ -30,7 +30,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { JwtPayload } from '../auth/types/jwt-payload.interface';
 import { actorFrom } from '../common/request-actor';
-import { EnrollDto, EnrollFailureDto, EnrollmentResultDto } from './dto/enroll.dto';
+import {
+  EnrollDto,
+  EnrollFailureDto,
+  EnrollmentResultDto,
+  SwapDto,
+} from './dto/enroll.dto';
 import { ListMyEnrollmentsQueryDto } from './dto/list-my-enrollments-query.dto';
 import { MyEnrollmentDto } from './dto/my-enrollment.dto';
 import { EnrollmentService } from './enrollment.service';
@@ -85,6 +90,26 @@ export class EnrollmentController {
     @Req() req: Request,
   ): Promise<EnrollmentResultDto> {
     return this.enrollmentService.drop(id, user.sub, actorFrom(req, user.sub));
+  }
+
+  @Patch(':id/swap')
+  @UseGuards(EnrollmentOwnershipGuard)
+  @ApiOperation({
+    summary: 'Swap to a different section',
+    description:
+      'Atomically drops the source enrollment and enrolls in the target section. Fails if the target section is full, keeping the source enrollment intact. All eligibility checks (time conflicts, credit limits, advisor holds) apply to the target section.',
+  })
+  @ApiOkResponse({ type: EnrollmentResultDto })
+  @ApiConflictResponse({ type: EnrollFailureDto })
+  @ApiBadRequestResponse({ type: EnrollFailureDto })
+  @ApiNotFoundResponse({ type: EnrollFailureDto })
+  swap(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SwapDto,
+    @CurrentUser() user: JwtPayload,
+    @Req() req: Request,
+  ): Promise<EnrollmentResultDto> {
+    return this.enrollmentService.swap(id, body, user.sub, actorFrom(req, user.sub));
   }
 
   @Get(':id')
