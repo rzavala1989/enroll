@@ -1,28 +1,26 @@
 # Enroll
 
-Course registration system. pnpm monorepo with a NestJS API and a Next.js web app.
+Course registration system designed to handle the concurrency and data integrity challenges of registration day. Built as a pnpm monorepo with a NestJS API and a Next.js web app.
 
 ## Layout
 
-```
+```text
 apps/
   api/          NestJS, Prisma, Postgres, Redis (BullMQ), Mongo (audit)
   web/          Next.js 16 (App Router, port 3001)
-  web-angular/  Archived Angular 18 client, outside the pnpm workspace
 packages/
   shared/       TypeScript contracts both apps import as @enroll/shared
 load/           k6 registration-day load profile
 scripts/        migrate-safe.sh, the Prisma generated-column workaround
 ```
 
-## UI & UX Enhancements
+## Architecture decisions
 
-The Next.js frontend has been crafted with a focus on a **premium, responsive user experience**, demonstrating deep frontend expertise:
-
-- **Rich Aesthetics**: The UI leverages modern design principles, utilizing glassmorphism, subtle blurs, and vibrant gradient hero sections.
-- **Dynamic Interactions**: Micro-animations and hover states make the data-dense views (like the Student Profile and Course Catalog) feel alive and highly engaging.
-- **Pixel-Perfect Layouts**: Complex, responsive CSS Grids and Flexbox are used to ensure picture-perfect alignment across all breakpoints.
-- **Next.js App Router**: Takes full advantage of Server Components, optimized image loading (`next/image`), and lightning-fast client-side routing.
+- **Redis and BullMQ**: Offloads non-critical paths from the enrollment transaction. Waitlist promotion sweeps and audit log draining are enqueued to background workers, keeping the main request cycle fast and decoupled from downstream failures.
+- **Postgres row locks**: Enrollment concurrency is serialized via `SELECT ... FOR UPDATE` at the section level. This avoids complex distributed locking and guarantees safe capacity checks without over-enrolling.
+- **Mongo audit outbox**: Audit events are saved transactionally alongside the domain mutation in Postgres (the outbox pattern), then drained to Mongo asynchronously. This ensures audit trails are never lost if the external datastore is temporarily unavailable.
+- **Generated search vector workaround**: `Course.searchVector` uses a Postgres generated column for full-text search. Prisma cannot model this natively, creating drift where `prisma migrate dev` attempts to drop it. `migrate-safe.sh` acts as a deployment safety net, scrubbing the diff before apply.
+- **Concurrency testing**: A dedicated `k6` load profile (`load/registration-day.js`) simulates the thundering herd of a registration window opening. Assertions verify that capacity is perfectly respected under high contention and that lock wait times remain acceptable.
 
 ## Prerequisites
 
