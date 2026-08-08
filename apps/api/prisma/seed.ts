@@ -27,7 +27,13 @@
  */
 
 import { faker } from '@faker-js/faker';
-import { EnrollmentStatus, PrismaClient, Role, Season } from '@prisma/client';
+import {
+  ClassStanding,
+  EnrollmentStatus,
+  PrismaClient,
+  Role,
+  Season,
+} from '@prisma/client';
 import { ALL_DEPARTMENTS, Department } from '@enroll/shared';
 import * as bcrypt from 'bcrypt';
 
@@ -358,10 +364,12 @@ async function main(): Promise<void> {
   assertSafeToWipe();
   console.log('seeding...');
 
+  await prisma.notification.deleteMany({});
   await prisma.enrollment.deleteMany({});
   await prisma.section.deleteMany({});
   await prisma.coursePrerequisite.deleteMany({});
   await prisma.course.deleteMany({});
+  await prisma.registrationWindow.deleteMany({});
   await prisma.term.deleteMany({});
   await prisma.user.deleteMany({});
 
@@ -380,6 +388,25 @@ async function main(): Promise<void> {
       registrationCloses: closes,
     },
   });
+
+  // ── Priority registration windows ─────────────────────────────────
+  // Seniors register first, freshmen last. All windows are in the past
+  // so the seed works for immediate testing, but the stagger is visible
+  // in the data.
+  const standingOrder: Array<{ standing: ClassStanding; daysAgo: number }> = [
+    { standing: ClassStanding.SENIOR, daysAgo: 7 },
+    { standing: ClassStanding.JUNIOR, daysAgo: 5 },
+    { standing: ClassStanding.SOPHOMORE, daysAgo: 3 },
+    { standing: ClassStanding.FRESHMAN, daysAgo: 1 },
+  ];
+  for (const { standing, daysAgo } of standingOrder) {
+    const opensAt = new Date(now);
+    opensAt.setDate(opensAt.getDate() - daysAgo);
+    await prisma.registrationWindow.create({
+      data: { termId: fall2026.id, classStanding: standing, opensAt },
+    });
+  }
+  console.log('  inserted 4 registration windows');
 
   // ── Spring 2026 term (past, closed) ────────────────────────────────
   // Students who completed courses in this term satisfy prerequisites
@@ -557,6 +584,16 @@ async function main(): Promise<void> {
   // produce, and the ownership check in EnrollmentOwnershipGuard has
   // something to actually scope against for every advisor, not just
   // the lucky ones.
+  // Standing distribution: 8 seniors, 14 juniors, 16 sophomores, 12
+  // freshmen. Roughly mirrors real attrition patterns and gives every
+  // priority tier enough students to generate visible data.
+  function standingFor(i: number): ClassStanding {
+    if (i < 8) return ClassStanding.SENIOR;
+    if (i < 22) return ClassStanding.JUNIOR;
+    if (i < 38) return ClassStanding.SOPHOMORE;
+    return ClassStanding.FRESHMAN;
+  }
+
   const students = [];
   for (let i = 0; i < 50; i++) {
     const firstName = faker.person.firstName();
@@ -567,6 +604,7 @@ async function main(): Promise<void> {
         firstName,
         lastName,
         roles: [Role.STUDENT],
+        classStanding: standingFor(i),
         passwordHash: placeholderHash,
         advisorId: advisors[i % advisors.length].id,
       },

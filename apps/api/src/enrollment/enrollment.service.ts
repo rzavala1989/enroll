@@ -84,22 +84,46 @@ export class EnrollmentService {
         });
       }
       const now = new Date();
-      if (now < section.term.registrationOpens || now > section.term.registrationCloses) {
+      if (now > section.term.registrationCloses) {
         throw new BadRequestException({
           code: 'REGISTRATION_CLOSED',
-          message: "Registration is not currently open for the section's term.",
+          message: "Registration has closed for the section's term.",
         });
       }
 
       // 2. Verify the student exists.
       const student = await tx.user.findUnique({
         where: { id: userId },
-        select: { id: true },
+        select: { id: true, classStanding: true },
       });
       if (!student) {
         throw new NotFoundException({
           code: 'STUDENT_NOT_FOUND',
           message: 'Student does not exist.',
+        });
+      }
+
+      // 2b. Standing-aware registration window. If the term has
+      // per-standing windows, the student's window must be open;
+      // otherwise fall back to the term's registrationOpens.
+      const window = student.classStanding
+        ? await tx.registrationWindow.findUnique({
+            where: {
+              termId_classStanding: {
+                termId: section.termId,
+                classStanding: student.classStanding,
+              },
+            },
+            select: { opensAt: true },
+          })
+        : null;
+      const effectiveOpens = window?.opensAt ?? section.term.registrationOpens;
+      if (now < effectiveOpens) {
+        throw new BadRequestException({
+          code: 'REGISTRATION_NOT_OPEN',
+          message: student.classStanding
+            ? `Registration for ${student.classStanding.toLowerCase()}s opens ${effectiveOpens.toISOString()}.`
+            : `Registration opens ${effectiveOpens.toISOString()}.`,
         });
       }
 

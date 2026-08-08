@@ -31,7 +31,11 @@ describe('EnrollmentService', () => {
             term: { registrationOpens: past, registrationCloses: future },
           }),
         },
-        user: { findUnique: jest.fn().mockResolvedValue({ id: 'stu-1' }) },
+        user: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ id: 'stu-1', classStanding: 'SENIOR' }),
+        },
         $queryRaw: jest.fn().mockResolvedValue([
           {
             id: 'sec-1',
@@ -54,6 +58,9 @@ describe('EnrollmentService', () => {
         },
         coursePrerequisite: {
           findMany: jest.fn().mockResolvedValue([]),
+        },
+        registrationWindow: {
+          findUnique: jest.fn().mockResolvedValue(null),
         },
       } as any;
     }
@@ -172,7 +179,11 @@ describe('EnrollmentService', () => {
           }),
           update: jest.fn().mockResolvedValue({ capacity: 30, enrolledCount: 11 }),
         },
-        user: { findUnique: jest.fn().mockResolvedValue({ id: 'stu-1' }) },
+        user: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ id: 'stu-1', classStanding: 'SENIOR' }),
+        },
         $queryRaw: jest
           .fn()
           .mockResolvedValue([
@@ -191,6 +202,9 @@ describe('EnrollmentService', () => {
         },
         coursePrerequisite: {
           findMany: jest.fn().mockResolvedValue([]),
+        },
+        registrationWindow: {
+          findUnique: jest.fn().mockResolvedValue(null),
         },
       } as any;
     }
@@ -296,6 +310,43 @@ describe('EnrollmentService', () => {
           },
         },
       ]);
+      const svc = buildService(tx);
+
+      const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);
+
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+    });
+
+    it('rejects when the standing-specific window has not opened yet', async () => {
+      const tx = baseTx();
+      const tomorrow = new Date(Date.now() + 86_400_000);
+      tx.registrationWindow.findUnique.mockResolvedValue({
+        opensAt: tomorrow,
+      });
+      const svc = buildService(tx);
+
+      await expect(
+        svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor),
+      ).rejects.toMatchObject({ response: { code: 'REGISTRATION_NOT_OPEN' } });
+      expect(tx.enrollment.create).not.toHaveBeenCalled();
+    });
+
+    it('allows enrollment when the standing-specific window is open', async () => {
+      const tx = baseTx();
+      const yesterday = new Date(Date.now() - 86_400_000);
+      tx.registrationWindow.findUnique.mockResolvedValue({
+        opensAt: yesterday,
+      });
+      const svc = buildService(tx);
+
+      const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);
+
+      expect(result.status).toBe(EnrollmentStatus.ENROLLED);
+    });
+
+    it('falls back to term registrationOpens when no standing window exists', async () => {
+      const tx = baseTx();
+      tx.registrationWindow.findUnique.mockResolvedValue(null);
       const svc = buildService(tx);
 
       const result = await svc.enroll({ sectionId: 'sec-1' }, 'stu-1', actor);

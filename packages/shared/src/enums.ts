@@ -17,3 +17,10 @@ export enum Season {
   SPRING = 'SPRING',
   SUMMER = 'SUMMER',
 }
+
+export enum ClassStanding {
+  FRESHMAN = 'FRESHMAN',
+  SOPHOMORE = 'SOPHOMORE',
+  JUNIOR = 'JUNIOR',
+  SENIOR = 'SENIOR',
+}

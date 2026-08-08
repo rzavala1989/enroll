@@ -27,13 +27,21 @@ enum Season {
   SUMMER
 }
 
+enum ClassStanding {
+  FRESHMAN
+  SOPHOMORE
+  JUNIOR
+  SENIOR
+}
+
 model User {
   id           String @id @default(uuid()) @db.Uuid
   email        String @unique
   passwordHash String
   firstName    String
   lastName     String
-  roles        Role[] @default([STUDENT])
+  roles         Role[]         @default([STUDENT])
+  classStanding ClassStanding? // null for non-students
 
   // self-referential: a user (advisee) has one advisor (also a User)
   advisorId String? @db.Uuid
@@ -74,9 +82,23 @@ model Term {
   registrationOpens  DateTime
   registrationCloses DateTime
 
-  sections Section[]
+  sections            Section[]
+  registrationWindows RegistrationWindow[]
 
   @@unique([season, year])
+}
+
+model RegistrationWindow {
+  id String @id @default(uuid()) @db.Uuid
+
+  termId        String        @db.Uuid
+  term          Term          @relation(fields: [termId], references: [id])
+
+  classStanding ClassStanding
+
+  opensAt DateTime
+
+  @@unique([termId, classStanding])
 }
 
 model Course {
