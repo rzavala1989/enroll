@@ -3,8 +3,11 @@
  *
  * Wipes Enrollment, Section, Course, Term, User in dependency order
  * and reinserts a realistic set of data: one Fall 2026 term, 152
- * courses spread across 8 departments with 1-3 sections apiece, and
- * 57 users (50 students, 5 advisors, 2 admins).
+ * courses spread across 8 departments with 1-3 sections apiece, 57
+ * users (50 students each assigned one of 5 advisors, 2 admins), a
+ * real Enrollment for every student's course load (enrolled, some
+ * waitlisted where demand exceeds capacity, a few dropped), and a
+ * handful of waitlist-promotion and waitlist-expiry Notifications.
  *
  * Run via: `pnpm --filter api prisma db seed`
  *
@@ -24,7 +27,7 @@
  */
 
 import { faker } from '@faker-js/faker';
-import { PrismaClient, Role, Season } from '@prisma/client';
+import { EnrollmentStatus, PrismaClient, Role, Season } from '@prisma/client';
 import { ALL_DEPARTMENTS, Department } from '@enroll/shared';
 import * as bcrypt from 'bcrypt';
 
@@ -378,7 +381,7 @@ async function main(): Promise<void> {
   });
 
   // ── Courses ───────────────────────────────────────────────────────
-  const allCourses: Array<{ id: string; level: number }> = [];
+  const allCourses: Array<{ id: string; code: string; level: number }> = [];
 
   for (const dept of DEPARTMENTS) {
     for (const c of coursesFor(dept)) {
@@ -392,7 +395,7 @@ async function main(): Promise<void> {
           credits,
         },
       });
-      allCourses.push({ id: created.id, level: c.level });
+      allCourses.push({ id: created.id, code: c.code, level: c.level });
     }
   }
   console.log(`  inserted ${allCourses.length} courses`);
@@ -400,7 +403,20 @@ async function main(): Promise<void> {
   // ── Sections ──────────────────────────────────────────────────────
   // Lower-division courses tend to have more sections; upper-division
   // tends to have one. A small bias for realism.
-  let sectionCount = 0;
+  //
+  // `enrolledCount` is not set here. It is a denormalized count of real
+  // Enrollment rows, so faking it independently is exactly the kind of
+  // drift the rest of this codebase works hard to prevent (see the
+  // enrollment engine's locking discipline). It is patched to the true
+  // count once the enrollments below exist.
+  const allSections: Array<{
+    id: string;
+    capacity: number;
+    level: 100 | 200 | 300 | 400;
+    courseId: string;
+    courseCode: string;
+    sectionNumber: string;
+  }> = [];
   for (const course of allCourses) {
     const numSections =
       course.level <= 200
@@ -409,80 +425,351 @@ async function main(): Promise<void> {
 
     for (let s = 1; s <= numSections; s++) {
       const capacity = faker.number.int({ min: 20, max: 30 });
-      const enrolledCount = faker.number.int({
-        min: 0,
-        max: Math.floor(capacity * 0.9),
-      });
+      const sectionNumber = s.toString().padStart(3, '0');
 
-      await prisma.section.create({
+      const created = await prisma.section.create({
         data: {
           courseId: course.id,
           termId: fall2026.id,
-          sectionNumber: s.toString().padStart(3, '0'),
+          sectionNumber,
           instructorName: `${faker.person.firstName()} ${faker.person.lastName()}`,
           meetingPattern: faker.helpers.arrayElement(MEETING_PATTERNS),
           room: faker.helpers.arrayElement(ROOMS),
           capacity,
-          enrolledCount,
         },
       });
-      sectionCount++;
+      allSections.push({
+        id: created.id,
+        capacity,
+        level: course.level as 100 | 200 | 300 | 400,
+        courseId: course.id,
+        courseCode: course.code,
+        sectionNumber,
+      });
     }
   }
-  console.log(`  inserted ${sectionCount} sections`);
+  console.log(`  inserted ${allSections.length} sections`);
 
   // ── Users ─────────────────────────────────────────────────────────
+  // Advisors first: students reference one by id, so the direction
+  // that satisfies the FK has to run first. `createMany` cannot do
+  // that in a single call because it never returns the generated ids,
+  // so this whole section is individual creates instead of the bulk
+  // insert an FK-free batch of users could otherwise use.
   const placeholderHash = await bcrypt.hash('password', 10);
 
-  const userRows: Array<{
-    email: string;
-    firstName: string;
-    lastName: string;
-    roles: Role[];
-  }> = [];
+  async function makeUser(role: Role, provider: string) {
+    const firstName = faker.person.firstName();
+    const lastName = faker.person.lastName();
+    return prisma.user.create({
+      data: {
+        email: faker.internet.email({ firstName, lastName, provider }).toLowerCase(),
+        firstName,
+        lastName,
+        roles: [role],
+        passwordHash: placeholderHash,
+      },
+    });
+  }
 
+  const advisors = [];
+  for (let i = 0; i < 5; i++) {
+    advisors.push(await makeUser(Role.ADVISOR, 'ucr.edu'));
+  }
+
+  for (let i = 0; i < 2; i++) {
+    await makeUser(Role.ADMIN, 'ucr.edu');
+  }
+
+  // Round-robin rather than random: every advisor ends up with 9 or 10
+  // advisees instead of the lumpy distribution a random pick would
+  // produce, and the ownership check in EnrollmentOwnershipGuard has
+  // something to actually scope against for every advisor, not just
+  // the lucky ones.
+  const students = [];
   for (let i = 0; i < 50; i++) {
     const firstName = faker.person.firstName();
     const lastName = faker.person.lastName();
-    userRows.push({
-      email: faker.internet
-        .email({ firstName, lastName, provider: 'student.ucr.edu' })
-        .toLowerCase(),
-      firstName,
-      lastName,
-      roles: [Role.STUDENT],
+    const created = await prisma.user.create({
+      data: {
+        email: faker.internet
+          .email({ firstName, lastName, provider: 'student.ucr.edu' })
+          .toLowerCase(),
+        firstName,
+        lastName,
+        roles: [Role.STUDENT],
+        passwordHash: placeholderHash,
+        advisorId: advisors[i % advisors.length].id,
+      },
     });
+    students.push({ id: created.id });
   }
-  for (let i = 0; i < 5; i++) {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
-    userRows.push({
-      email: faker.internet
-        .email({ firstName, lastName, provider: 'ucr.edu' })
-        .toLowerCase(),
-      firstName,
-      lastName,
-      roles: [Role.ADVISOR],
+  console.log(
+    `  inserted ${students.length} students (each with an advisor), ` +
+      `${advisors.length} advisors, 2 admins`,
+  );
+
+  // ── Enrollments ───────────────────────────────────────────────────
+  // Fifty students cannot fill three hundred sections the way a real
+  // student body fills a real course catalog: even six courses apiece
+  // is only 300 seats claimed against roughly seven thousand available.
+  // Real demand is not uniform either, so section choice is weighted
+  // toward lower-level courses the way gen-ed and intro requirements
+  // concentrate real enrollment. That is what lets a handful of
+  // sections actually hit capacity and grow a waitlist instead of
+  // every section sitting at a token few percent.
+  const LEVEL_WEIGHT: Record<100 | 200 | 300 | 400, number> = {
+    100: 5,
+    200: 3,
+    300: 2,
+    400: 1,
+  };
+  const weightedSectionPool: (typeof allSections)[number][] = [];
+  for (const section of allSections) {
+    for (let w = 0; w < LEVEL_WEIGHT[section.level]; w++)
+      weightedSectionPool.push(section);
+  }
+
+  const enrolledCounts = new Map<string, number>();
+  const waitlistCounts = new Map<string, number>();
+  const createdEnrollments: Array<{
+    id: string;
+    studentId: string;
+    sectionId: string;
+    courseId: string;
+    courseCode: string;
+    sectionNumber: string;
+    status: EnrollmentStatus;
+  }> = [];
+
+  for (const student of students) {
+    const wanted = faker.number.int({ min: 3, max: 6 });
+    const picks = new Map<string, (typeof allSections)[number]>();
+    // The pool is large relative to `wanted`, so collisions on distinct
+    // sections are rare; the attempt cap just keeps a pathological draw
+    // from looping instead of settling for fewer than `wanted`.
+    for (let attempt = 0; picks.size < wanted && attempt < wanted * 20; attempt++) {
+      const section = faker.helpers.arrayElement(weightedSectionPool);
+      picks.set(section.id, section);
+    }
+
+    for (const section of picks.values()) {
+      const enrolledSoFar = enrolledCounts.get(section.id) ?? 0;
+      const isWaitlisted = enrolledSoFar >= section.capacity;
+
+      const enrollment = await prisma.enrollment.create({
+        data: isWaitlisted
+          ? {
+              studentId: student.id,
+              sectionId: section.id,
+              status: EnrollmentStatus.WAITLISTED,
+              waitlistPosition: (waitlistCounts.get(section.id) ?? 0) + 1,
+            }
+          : {
+              studentId: student.id,
+              sectionId: section.id,
+              status: EnrollmentStatus.ENROLLED,
+            },
+      });
+
+      if (isWaitlisted) {
+        waitlistCounts.set(section.id, (waitlistCounts.get(section.id) ?? 0) + 1);
+      } else {
+        enrolledCounts.set(section.id, enrolledSoFar + 1);
+      }
+
+      createdEnrollments.push({
+        id: enrollment.id,
+        studentId: student.id,
+        sectionId: section.id,
+        courseId: section.courseId,
+        courseCode: section.courseCode,
+        sectionNumber: section.sectionNumber,
+        status: enrollment.status,
+      });
+    }
+  }
+
+  // The organic pass above is realistic but toothless: 50 students at
+  // 3-6 courses each is ~225 total seat claims spread across roughly
+  // 80 intro-level sections, so nothing ever climbs past a fifth of
+  // capacity by chance alone. A real registration day has specific
+  // sections everyone needs at once, so force that directly: the six
+  // smallest 100-level sections each get walked through every student
+  // (skipping anyone already in that section) until 5 land on the
+  // waitlist. This is what gives the waitlist admin screen, the
+  // waitlisted badge on the enrollments page, and the promotion/expiry
+  // notifications below something real to show.
+  const hotSections = allSections
+    .filter((s) => s.level === 100)
+    .sort((a, b) => a.capacity - b.capacity)
+    .slice(0, 6);
+
+  for (const section of hotSections) {
+    const alreadyIn = new Set(
+      createdEnrollments
+        .filter((e) => e.sectionId === section.id)
+        .map((e) => e.studentId),
+    );
+    const targetWaitlisted = 5;
+    const shuffled = faker.helpers.shuffle([...students]);
+
+    for (const student of shuffled) {
+      if (alreadyIn.has(student.id)) continue;
+      const waitlistedSoFar = waitlistCounts.get(section.id) ?? 0;
+      if (waitlistedSoFar >= targetWaitlisted) break;
+
+      const enrolledSoFar = enrolledCounts.get(section.id) ?? 0;
+      const isWaitlisted = enrolledSoFar >= section.capacity;
+
+      const enrollment = await prisma.enrollment.create({
+        data: isWaitlisted
+          ? {
+              studentId: student.id,
+              sectionId: section.id,
+              status: EnrollmentStatus.WAITLISTED,
+              waitlistPosition: waitlistedSoFar + 1,
+            }
+          : {
+              studentId: student.id,
+              sectionId: section.id,
+              status: EnrollmentStatus.ENROLLED,
+            },
+      });
+
+      if (isWaitlisted) {
+        waitlistCounts.set(section.id, waitlistedSoFar + 1);
+      } else {
+        enrolledCounts.set(section.id, enrolledSoFar + 1);
+      }
+      alreadyIn.add(student.id);
+
+      createdEnrollments.push({
+        id: enrollment.id,
+        studentId: student.id,
+        sectionId: section.id,
+        courseId: section.courseId,
+        courseCode: section.courseCode,
+        sectionNumber: section.sectionNumber,
+        status: enrollment.status,
+      });
+    }
+  }
+
+  // A registered student who changes their mind before the term
+  // starts: self-drops, so no notification (dropping is a direct
+  // action, not something that happens to you). Pulled from the
+  // enrolled set only, distinct from the waitlist-expiry drops below.
+  const enrolledRows = createdEnrollments.filter(
+    (e) => e.status === EnrollmentStatus.ENROLLED,
+  );
+  const selfDropped = faker.helpers.arrayElements(
+    enrolledRows,
+    Math.round(enrolledRows.length * 0.06),
+  );
+  for (const row of selfDropped) {
+    await prisma.enrollment.update({
+      where: { id: row.id },
+      data: {
+        status: EnrollmentStatus.DROPPED,
+        droppedAt: faker.date.recent({ days: 3 }),
+      },
     });
+    row.status = EnrollmentStatus.DROPPED;
+    enrolledCounts.set(row.sectionId, (enrolledCounts.get(row.sectionId) ?? 1) - 1);
   }
-  for (let i = 0; i < 2; i++) {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
-    userRows.push({
-      email: faker.internet
-        .email({ firstName, lastName, provider: 'ucr.edu' })
-        .toLowerCase(),
-      firstName,
-      lastName,
-      roles: [Role.ADMIN],
+
+  // A handful of waitlist rows expire because registration closed
+  // before a seat opened. This is the system removing the student, not
+  // the student leaving, and it is the one drop flavor that gets a
+  // notification (below).
+  const waitlistedRows = createdEnrollments.filter(
+    (e) => e.status === EnrollmentStatus.WAITLISTED,
+  );
+  const waitlistExpired = faker.helpers.arrayElements(
+    waitlistedRows,
+    Math.min(waitlistedRows.length, 6),
+  );
+  for (const row of waitlistExpired) {
+    await prisma.enrollment.update({
+      where: { id: row.id },
+      data: {
+        status: EnrollmentStatus.DROPPED,
+        droppedAt: faker.date.recent({ days: 1 }),
+        waitlistPosition: null,
+      },
+    });
+    row.status = EnrollmentStatus.DROPPED;
+  }
+
+  // Patch every touched section to the real count of its ENROLLED rows.
+  // Untouched sections keep the schema default of 0, which is already
+  // correct: this term's registration just opened.
+  for (const [sectionId, count] of enrolledCounts) {
+    await prisma.section.update({
+      where: { id: sectionId },
+      data: { enrolledCount: count },
     });
   }
 
-  await prisma.user.createMany({
-    data: userRows.map((u) => ({ ...u, passwordHash: placeholderHash })),
-    skipDuplicates: true,
-  });
-  console.log(`  inserted ${userRows.length} users`);
+  const finalEnrolled = createdEnrollments.filter(
+    (e) => e.status === EnrollmentStatus.ENROLLED,
+  ).length;
+  const finalWaitlisted = createdEnrollments.filter(
+    (e) => e.status === EnrollmentStatus.WAITLISTED,
+  ).length;
+  const finalDropped = createdEnrollments.filter(
+    (e) => e.status === EnrollmentStatus.DROPPED,
+  ).length;
+  console.log(
+    `  inserted ${createdEnrollments.length} enrollments ` +
+      `(${finalEnrolled} enrolled, ${finalWaitlisted} waitlisted, ${finalDropped} dropped)`,
+  );
+
+  // ── Notifications ─────────────────────────────────────────────────
+  // Title and body copy mirrors waitlist.service.ts exactly (runPromotion
+  // and expireSectionWaitlist) so a seeded notification is not
+  // distinguishable from one the promotion or expiry job actually wrote.
+  let notificationCount = 0;
+
+  const promoted = faker.helpers.arrayElements(
+    enrolledRows.filter((e) => e.status === EnrollmentStatus.ENROLLED),
+    Math.min(enrolledRows.length, 20),
+  );
+  for (const row of promoted) {
+    await prisma.notification.create({
+      data: {
+        userId: row.studentId,
+        type: 'WAITLIST_PROMOTED',
+        title: 'You were enrolled from the waitlist',
+        body: `A seat opened in ${row.courseCode} section ${row.sectionNumber} and you were enrolled automatically.`,
+        payload: {
+          enrollmentId: row.id,
+          sectionId: row.sectionId,
+          courseId: row.courseId,
+        },
+        readAt: faker.datatype.boolean() ? faker.date.recent({ days: 2 }) : null,
+        createdAt: faker.date.recent({ days: 5 }),
+      },
+    });
+    notificationCount++;
+  }
+
+  for (const row of waitlistExpired) {
+    await prisma.notification.create({
+      data: {
+        userId: row.studentId,
+        type: 'WAITLIST_EXPIRED',
+        title: 'Your waitlist spot expired',
+        body: 'Registration closed before a seat opened, so you were removed from the waitlist.',
+        payload: { enrollmentId: row.id, sectionId: row.sectionId },
+        readAt: faker.datatype.boolean() ? faker.date.recent({ days: 1 }) : null,
+        createdAt: faker.date.recent({ days: 1 }),
+      },
+    });
+    notificationCount++;
+  }
+  console.log(`  inserted ${notificationCount} notifications`);
 
   console.log('done.');
 }
