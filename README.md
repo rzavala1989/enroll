@@ -172,6 +172,20 @@ open http://localhost:3000/api/docs      # Swagger, non-production only
 Then open http://localhost:3001. The home route redirects to the catalog, via
 sign-in if you are logged out.
 
+## Load testing (Grafana k6)
+
+To simulate the thundering herd of a registration window opening and verify the locking architecture under high contention, the repository includes a Grafana k6 load profile.
+
+Ensure you have [Grafana k6 installed](https://grafana.com/docs/k6/latest/set-up/install-k6/), the database is seeded (`pnpm --filter api prisma db seed`), and the stack is running. Then, execute the script by passing the targeted section IDs (e.g. from the seeded database):
+
+```bash
+BASE_URL=http://localhost:3000/api/v1 \
+SECTION_IDS=sec-1,sec-2,sec-3 \
+k6 run load/registration-day.js
+```
+
+This ramps up to 1,000 concurrent Virtual Users (VUs) attempting to claim seats. The script automatically verifies that `seat_overcommit` remains zero and measures the `p99` latency cost of pessimistic locking.
+
 ## Scripts
 
 | Script                      | What it does                                             |
