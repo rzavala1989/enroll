@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
 import type { CourseListItem, CourseDetail } from '@enroll/shared';
 
 import { apiFetch } from '@/lib/api/client';
 import { deptLabel, DEPT_IMAGES, DEPT_COLORS } from '@/lib/departments';
 import { CatalogTable } from './catalog-table';
+import { CourseDetailDrawer } from './course-detail-drawer';
 
 function DepartmentSection({
   dept,
@@ -138,54 +138,11 @@ export function CatalogWorkspace({
       {/* Right: Schedule Impact Panel */}
       <div className="sticky top-6 lg:col-span-4">
         {selectedCourseListItem ? (
-          <div className="rounded-sm border border-line bg-card p-5 shadow-sm">
-            <h3 className="mb-1 font-display text-lg font-bold text-ink">
-              Adding {selectedCourseListItem.code}
-            </h3>
-            <p className="mb-6 text-sm text-ink-soft">{selectedCourseListItem.title}</p>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-line pb-3">
-                <span className="text-sm text-ink-soft">Credits after add</span>
-                <span className="font-mono text-sm font-medium text-ink">
-                  {enrolledCredits + selectedCourseListItem.credits} / 18
-                </span>
-              </div>
-              <div className="flex items-center justify-between border-b border-line pb-3">
-                <span className="text-sm text-ink-soft">Time conflicts</span>
-                <span className="text-sm font-medium text-pine">None</span>
-              </div>
-              <div className="flex items-center justify-between border-b border-line pb-3">
-                <span className="text-sm text-ink-soft">Prerequisites</span>
-                <span className="text-sm font-medium text-pine">Met</span>
-              </div>
-              <div className="flex items-center justify-between border-b border-line pb-3">
-                <span className="text-sm text-ink-soft">Open sections</span>
-                <span className="font-mono text-sm font-medium text-ink">
-                  {detail
-                    ? detail.sections.filter((s) => s.seatsAvailable > 0).length
-                    : '-'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between border-b border-line pb-3">
-                <span className="text-sm text-ink-soft">Best fit</span>
-                <span className="text-sm font-medium text-ink">
-                  {detail && detail.sections.length > 0
-                    ? detail.sections[0].meetingPattern || 'Online'
-                    : '-'}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <Link
-                href={`/courses/${selectedId}`}
-                className="flex w-full items-center justify-center rounded-sm bg-pine py-2 text-sm font-medium text-paper hover:bg-pine-dark transition-colors"
-              >
-                Review sections &rarr;
-              </Link>
-            </div>
-          </div>
+          <CourseDetailDrawer
+            listItem={selectedCourseListItem}
+            detail={detail}
+            enrolledCredits={enrolledCredits}
+          />
         ) : (
           <div className="flex h-64 flex-col items-center justify-center rounded-sm border border-dashed border-line p-6 text-center">
             <svg
@@ -201,7 +158,7 @@ export function CatalogWorkspace({
               <path d="M9 3v18M15 3v18" />
             </svg>
             <p className="text-sm text-ink-soft">
-              Select a course to view its schedule impact.
+              Select a course to view sections and impact.
             </p>
           </div>
         )}
