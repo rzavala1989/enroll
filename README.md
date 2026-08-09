@@ -2,6 +2,8 @@
 
 Course registration system designed to handle the concurrency and data integrity challenges of registration day. Built as a pnpm monorepo with a NestJS API and a Next.js web app.
 
+![System Dashboard](./docs/screenshot.png)
+
 ## Layout
 
 ```text
@@ -269,6 +271,17 @@ All eligibility checks apply to the target section, with two adjustments:
 When the source enrollment was ENROLLED, the old section's counter is decremented
 and a waitlist promotion is enqueued, exactly as with a regular drop.
 
+## Failure modes handled
+
+The system is designed to fail predictably under load and edge-case conditions:
+
+- **Over-enrollment:** Prevented by `SELECT ... FOR UPDATE` row locks on the Section table. High concurrency will queue at the database level rather than overselling seats.
+- **Duplicate active enrollments:** Prevented by a unique composite index and transactional checks. A student cannot hold an active `ENROLLED` or `WAITLISTED` state in multiple sections of the same course.
+- **Advisor hold:** Checked unconditionally at the start of the enrollment transaction. Blocks all add/drop activity until a staff member releases it.
+- **Prereq failure:** Course prerequisite graphs are validated against the student's completed academic history. Missing prerequisites immediately abort the transaction.
+- **Time conflict:** Checked via algorithmic overlap detection of meeting patterns against the student's active schedule for the term.
+- **Queue/outbox downtime:** The transactional outbox pattern guarantees audit events are persisted in Postgres alongside the domain mutation. If the background Mongo drain or Redis waitlist sweep fails, messages remain in the outbox/queue to be retried automatically when infrastructure recovers.
+
 ## Data model
 
 The Prisma schema (`apps/api/prisma/schema.prisma`) defines the full data model.
@@ -306,6 +319,15 @@ registration lifecycle:
   enrollment.
 - An instructor dashboard for viewing rosters, entering grades, and managing
   section settings.
+
+## What I'd improve in production
+
+While this architecture handles registration load securely, a production rollout would need a few structural additions:
+
+- **Read Replicas & CQRS:** The catalog and profile views currently query the primary Postgres database. In a real registration event, I'd split reads to a dedicated replica or serve catalog state entirely from a Redis cache to protect the mutation database.
+- **Circuit Breakers:** External integrations (like an identity provider or billing API) would need circuit breakers to prevent cascading failures if they go down during peak traffic.
+- **Distributed Tracing:** Implementing OpenTelemetry (OTel) to trace requests from the Next.js frontend, through the NestJS API, down to the BullMQ workers and Prisma queries. This is critical for diagnosing latency spikes under load.
+- **Dead Letter Queues (DLQ):** While the outbox pattern ensures durability, I'd implement proper DLQ monitoring and alerting for audit events or waitlist promotions that exhaust their retry limits.
 
 ## Further reading
 

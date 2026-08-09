@@ -1,9 +1,7 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Surfaces and text: warm paper ground, deep navy ink. A registrar's
-     ledger, not a SaaS dashboard, paper is where forms live and ink is
-     what fills them out. */
+  /* Base theme colors for surfaces and typography. */
   --color-paper: #f2f0e8;
   --color-card: #ffffff;
   --color-card-sunk: #eae6da;
@@ -12,18 +10,16 @@
   --color-line: #ddd8c8;
   --color-line-strong: #c7c0a9;
 
-  /* Institutional pine: the one accent used for anything actionable. */
+  /* Primary actionable brand color. */
   --color-pine: #14513c;
   --color-pine-dark: #0b3527;
   --color-pine-soft: #e1eae3;
 
-  /* Action amber, reserved for secondary emphasis, never chrome. */
+  /* Secondary emphasis color. */
   --color-amber: #8a4b10;
   --color-amber-soft: #f5e9d8;
 
-  /* Seat and status colors. Oxblood and plum instead of stock red/purple:
-     saturated enough to carry meaning at a glance, dark enough to sit
-     quietly in a dense table. */
+  /* Seat and status indicator colors (open, full, waitlisted). */
   --color-open: #14513c;
   --color-open-soft: #e1eae3;
   --color-full: #8c2f24;
@@ -31,17 +27,14 @@
   --color-wait: #4b3c87;
   --color-wait-soft: #eae6f5;
 
-  /* Type: one family, three optical roles, instead of three unrelated
-     ones. Serif for the handful of moments that need real weight, sans
-     for everything you read, mono for everything you count. */
+  /* Typography hierarchy: serif for headers, sans for UI text, mono for tabular data. */
   --font-display: var(--font-crimson);
   --font-sans: var(--font-dm-sans);
   --font-mono: var(--font-jb-mono);
 
   --radius-sm: 3px;
 
-  /* Department accent colors: muted, institutional tones that pair
-     with the warm paper ground. Used for catalog section markers. */
+  /* Department accent colors. */
   --color-dept-cs: #1a5276;
   --color-dept-math: #6c3483;
   --color-dept-engl: #935116;

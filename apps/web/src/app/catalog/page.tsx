@@ -113,7 +113,7 @@ export default async function CatalogPage({
           body={
             hasFilters
               ? 'Every course in the current term was checked. Widen or drop a filter to see more.'
-              : 'This term has no courses in the catalog yet. Once a registrar publishes sections, they appear here.'
+              : 'This term has no courses in the catalog yet.'
           }
           facts={
             hasFilters

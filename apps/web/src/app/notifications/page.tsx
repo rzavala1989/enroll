@@ -22,8 +22,8 @@ export default async function NotificationsPage() {
       {data.length === 0 ? (
         <EmptyState
           className="mt-6"
-          title="Nothing to report"
-          body="This is where the registrar tells you about changes you did not make yourself: a waitlist seat that opened and enrolled you, or a waitlist spot that expired when registration closed."
+          title="You're all caught up"
+          body="You have no new notifications."
         />
       ) : (
         <div className="mt-6 flex flex-col gap-3">
