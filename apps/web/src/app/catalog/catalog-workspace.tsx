@@ -15,12 +15,14 @@ function DepartmentSection({
   showHeader,
   selectedId,
   onSelect,
+  enrolledCredits,
 }: {
   dept: string;
   courses: CourseListItem[];
   showHeader: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  enrolledCredits?: number;
 }) {
   const image = DEPT_IMAGES[dept];
   const color = DEPT_COLORS[dept] ?? 'var(--color-ink)';
@@ -62,7 +64,12 @@ function DepartmentSection({
           borderRadius: showHeader ? '0 0 3px 3px' : '3px',
         }}
       >
-        <CatalogTable courses={courses} selectedId={selectedId} onSelect={onSelect} />
+        <CatalogTable
+          courses={courses}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          enrolledCredits={enrolledCredits}
+        />
       </div>
     </section>
   );
@@ -115,6 +122,7 @@ export function CatalogWorkspace({
               showHeader={groups.length > 1}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              enrolledCredits={enrolledCredits}
             />
           ))
         ) : flatCourses ? (
@@ -122,6 +130,7 @@ export function CatalogWorkspace({
             courses={flatCourses}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            enrolledCredits={enrolledCredits}
           />
         ) : null}
       </div>

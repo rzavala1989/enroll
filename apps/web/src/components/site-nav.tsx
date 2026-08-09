@@ -106,31 +106,41 @@ export function SiteNav({
             >
               <CrestMark className="h-8 w-8" />
               <div className="flex flex-col">
-                <span className="font-display text-lg font-bold leading-tight text-paper tracking-wide">
-                  Enroll
-                </span>
-                {profile?.currentTerm && (
-                  <span className="text-[10px] font-medium tracking-wide uppercase text-pine-soft opacity-90">
-                    {profile.currentTerm.name}
+                <div className="flex items-center gap-2">
+                  <span className="font-display text-lg font-bold leading-tight text-paper tracking-wide">
+                    Enroll
                   </span>
+                  {profile?.currentTerm && (
+                    <>
+                      <span className="text-paper/40">&middot;</span>
+                      <span className="font-display text-lg font-bold leading-tight text-paper tracking-wide opacity-90">
+                        {profile.currentTerm.name}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {profile?.currentTerm && isStudent && (
+                  <div className="mt-0.5 flex items-center gap-2 text-[11px] font-medium text-paper/70 tracking-wide uppercase">
+                    <span className="text-pine-soft">Registration open</span>
+                    <span>&middot;</span>
+                    <span>
+                      {profile.currentTerm.enrolledCredits} /{' '}
+                      {profile.currentTerm.overloadMaxCredits ??
+                        profile.currentTerm.maxCredits}{' '}
+                      credits
+                    </span>
+                    <span>&middot;</span>
+                    {profile.holds.length === 0 ? (
+                      <span>No holds</span>
+                    ) : (
+                      <span className="text-amber-soft">
+                        {profile.holds.length} hold(s)
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </Link>
-
-            {profile?.currentTerm && (
-              <div className="hidden h-8 w-px bg-paper/10 sm:block" />
-            )}
-
-            {profile?.currentTerm && (
-              <div className="hidden flex-col sm:flex">
-                <span className="text-xs font-medium text-paper">Registration Open</span>
-                {isStudent && (
-                  <span className="text-[10px] text-paper/60">
-                    {profile.completedCredits} credits completed
-                  </span>
-                )}
-              </div>
-            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -180,19 +190,6 @@ export function SiteNav({
                       <div className="text-sm font-medium text-paper">
                         {identity.firstName} {identity.lastName}
                       </div>
-                      {isStudent && profile?.currentTerm && (
-                        <div className="text-[10px] text-paper/60">
-                          {profile.currentTerm.enrolledCredits} /{' '}
-                          {profile.currentTerm.overloadMaxCredits ??
-                            profile.currentTerm.maxCredits}{' '}
-                          credits
-                          {profile.holds.length > 0 && (
-                            <span className="ml-2 font-semibold text-amber-soft">
-                              • {profile.holds.length} hold(s)
-                            </span>
-                          )}
-                        </div>
-                      )}
                       {staffRole && (
                         <div className="text-[10px] uppercase tracking-wide text-amber-soft">
                           {staffRole}
