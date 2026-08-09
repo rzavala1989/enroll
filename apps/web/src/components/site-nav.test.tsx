@@ -19,17 +19,21 @@ const student: AuthUser = {
 
 describe('SiteNav notifications link', () => {
   it('is absent for a signed-out visitor', () => {
-    render(<SiteNav identity={null} unreadCount={0} />);
-    expect(screen.queryByRole('link', { name: /notifications/i })).not.toBeInTheDocument();
+    render(<SiteNav identity={null} unreadCount={0} profile={null} />);
+    expect(
+      screen.queryByRole('link', { name: /notifications/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('shows a plain Notifications link with no unread', () => {
-    render(<SiteNav identity={student} unreadCount={0} />);
+    render(<SiteNav identity={student} unreadCount={0} profile={null} />);
     expect(screen.getByRole('link', { name: 'Notifications' })).toBeInTheDocument();
   });
 
   it('includes the unread count in the accessible name when unread notifications exist', () => {
-    render(<SiteNav identity={student} unreadCount={3} />);
-    expect(screen.getByRole('link', { name: 'Notifications, 3 unread' })).toBeInTheDocument();
+    render(<SiteNav identity={student} unreadCount={3} profile={null} />);
+    expect(
+      screen.getByRole('link', { name: 'Notifications, 3 unread' }),
+    ).toBeInTheDocument();
   });
 });

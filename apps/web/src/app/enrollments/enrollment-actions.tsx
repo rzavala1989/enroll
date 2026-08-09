@@ -48,11 +48,9 @@ export function EnrollmentActions({
 
   if (!confirming) {
     return (
-      <div className="flex flex-col items-end gap-1">
-        <Button variant="danger" onClick={() => setConfirming(true)}>
-          {verb}
-        </Button>
-      </div>
+      <Button variant="danger" onClick={() => setConfirming(true)}>
+        {verb}
+      </Button>
     );
   }
 

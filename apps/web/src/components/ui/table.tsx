@@ -26,12 +26,14 @@ export function TBody({ children }: { children: ReactNode }) {
   return <tbody className="divide-y divide-line">{children}</tbody>;
 }
 
-export function TR({ children }: { children: ReactNode }) {
-  return <tr className="hover:bg-paper/60">{children}</tr>;
+export function TR({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) {
+  return <tr className={cn('hover:bg-paper/60', className)} {...props} />;
 }
 
 export function TH({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
-  return <th scope="col" className={cn('px-3 py-2 font-semibold', className)} {...props} />;
+  return (
+    <th scope="col" className={cn('px-3 py-2 font-semibold', className)} {...props} />
+  );
 }
 
 export function TD({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {

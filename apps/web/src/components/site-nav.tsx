@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { Role } from '@enroll/shared';
-import type { AuthUser } from '@enroll/shared';
+import type { AuthUser, StudentProfile } from '@enroll/shared';
 
 import { CrestMark } from '@/components/crest-mark';
 import { cn } from '@/lib/cn';
@@ -70,9 +70,11 @@ function UserInitial({ name }: { name: string }) {
 export function SiteNav({
   identity,
   unreadCount,
+  profile,
 }: {
   identity: AuthUser | null;
   unreadCount: number;
+  profile: StudentProfile | null;
 }) {
   const pathname = usePathname();
   const [signingOut, setSigningOut] = useState(false);
@@ -97,20 +99,39 @@ export function SiteNav({
       {/* Top bar: branding and user */}
       <div className="bg-ink">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-2">
-          <Link
-            href="/catalog"
-            className="flex items-center gap-3 rounded px-2 py-1.5 transition-colors hover:bg-white/10"
-          >
-            <CrestMark className="h-8 w-8" />
-            <div className="flex items-baseline gap-2">
-              <span className="font-display text-lg font-semibold text-paper">
-                Enroll
-              </span>
-              <span className="hidden text-xs text-paper/40 sm:inline">
-                University of California, Riverside
-              </span>
-            </div>
-          </Link>
+          <div className="flex items-center gap-6">
+            <Link
+              href="/catalog"
+              className="flex items-center gap-3 rounded transition-colors hover:opacity-80"
+            >
+              <CrestMark className="h-8 w-8" />
+              <div className="flex flex-col">
+                <span className="font-display text-lg font-bold leading-tight text-paper tracking-wide">
+                  Enroll
+                </span>
+                {profile?.currentTerm && (
+                  <span className="text-[10px] font-medium tracking-wide uppercase text-pine-soft opacity-90">
+                    {profile.currentTerm.name}
+                  </span>
+                )}
+              </div>
+            </Link>
+
+            {profile?.currentTerm && (
+              <div className="hidden h-8 w-px bg-paper/10 sm:block" />
+            )}
+
+            {profile?.currentTerm && (
+              <div className="hidden flex-col sm:flex">
+                <span className="text-xs font-medium text-paper">Registration Open</span>
+                {isStudent && (
+                  <span className="text-[10px] text-paper/60">
+                    {profile.completedCredits} credits completed
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center gap-3">
             {!identity && (
@@ -151,30 +172,34 @@ export function SiteNav({
                 <div className="relative">
                   <button
                     onClick={() => setMenuOpen(!menuOpen)}
-                    className="flex items-center gap-2 rounded-sm p-1 transition-colors hover:bg-white/10"
+                    className="flex items-center gap-3 rounded-sm p-1.5 transition-colors hover:bg-white/10"
                     aria-expanded={menuOpen}
                     aria-haspopup="true"
                   >
+                    <div className="hidden text-right sm:block">
+                      <div className="text-sm font-medium text-paper">
+                        {identity.firstName} {identity.lastName}
+                      </div>
+                      {isStudent && profile?.currentTerm && (
+                        <div className="text-[10px] text-paper/60">
+                          {profile.currentTerm.enrolledCredits} /{' '}
+                          {profile.currentTerm.overloadMaxCredits ??
+                            profile.currentTerm.maxCredits}{' '}
+                          credits
+                          {profile.holds.length > 0 && (
+                            <span className="ml-2 font-semibold text-amber-soft">
+                              • {profile.holds.length} hold(s)
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {staffRole && (
+                        <div className="text-[10px] uppercase tracking-wide text-amber-soft">
+                          {staffRole}
+                        </div>
+                      )}
+                    </div>
                     <UserInitial name={identity.firstName} />
-                    <span className="hidden text-sm text-paper/80 sm:inline">
-                      {identity.firstName}
-                    </span>
-                    <svg
-                      viewBox="0 0 12 12"
-                      width="10"
-                      height="10"
-                      fill="none"
-                      aria-hidden="true"
-                      className="hidden text-paper/50 sm:inline"
-                    >
-                      <path
-                        d="M3 4.5 6 7.5 9 4.5"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
                   </button>
 
                   {menuOpen && (
@@ -245,11 +270,27 @@ export function SiteNav({
             active={pathname.startsWith('/catalog') || pathname.startsWith('/courses')}
           />
           {isStudent && (
-            <NavTab
-              href="/enrollments"
-              label="My courses"
-              active={pathname.startsWith('/enrollments')}
-            />
+            <>
+              <NavTab
+                href="/enrollments"
+                label="My Schedule"
+                active={pathname.startsWith('/enrollments')}
+              />
+              <NavTab
+                href="/profile"
+                label="Academic Profile"
+                active={pathname.startsWith('/profile')}
+              />
+            </>
+          )}
+          {staffRole && (
+            <>
+              <NavTab
+                href="/enrollments"
+                label="Enrollment History"
+                active={pathname.startsWith('/enrollments')}
+              />
+            </>
           )}
         </nav>
       </div>

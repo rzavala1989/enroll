@@ -15,32 +15,38 @@ import { API_PREFIX, API_URL } from '@/lib/api/server';
  * no badge and the badge fills in when the call returns.
  */
 export function NavShell({ identity }: { identity: AuthUser | null }) {
-  if (!identity) return <SiteNav identity={null} unreadCount={0} />;
+  if (!identity) return <SiteNav identity={null} unreadCount={0} profile={null} />;
 
   return (
-    <Suspense fallback={<SiteNav identity={identity} unreadCount={0} />}>
+    <Suspense fallback={<SiteNav identity={identity} unreadCount={0} profile={null} />}>
       <NavWithUnreadCount identity={identity} />
     </Suspense>
   );
 }
 
 async function NavWithUnreadCount({ identity }: { identity: AuthUser }) {
-  // A raw fetch rather than apiGet: apiGet signals 401 and 404 by
-  // throwing redirect() and notFound(), which a catch here would
-  // swallow. A badge that cannot load should degrade to no badge, not
-  // take down the layout or hijack navigation.
   let unreadCount = 0;
+  let profile = null;
   try {
     const cookieHeader = (await cookies()).toString();
-    const res = await fetch(`${API_URL}${API_PREFIX}/notifications?limit=1`, {
-      headers: { cookie: cookieHeader },
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      unreadCount = ((await res.json()) as NotificationsResponse).unreadCount;
+    const [notifRes, profileRes] = await Promise.all([
+      fetch(`${API_URL}${API_PREFIX}/notifications?limit=1`, {
+        headers: { cookie: cookieHeader },
+        cache: 'no-store',
+      }),
+      fetch(`${API_URL}${API_PREFIX}/auth/profile`, {
+        headers: { cookie: cookieHeader },
+        cache: 'no-store',
+      }),
+    ]);
+    if (notifRes.ok) {
+      unreadCount = ((await notifRes.json()) as NotificationsResponse).unreadCount;
+    }
+    if (profileRes.ok) {
+      profile = await profileRes.json();
     }
   } catch {
-    // Network failure: render without a badge.
+    // Network failure: render without badge and profile context.
   }
-  return <SiteNav identity={identity} unreadCount={unreadCount} />;
+  return <SiteNav identity={identity} unreadCount={unreadCount} profile={profile} />;
 }

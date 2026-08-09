@@ -1,12 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { ColumnDef } from '@tanstack/react-table';
 import type { CourseListItem } from '@enroll/shared';
 
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
-import { SeatMeter } from '@/components/ui/seat-meter';
 import { seatStatus } from '@/lib/seat-status';
 
 const statusLabel = {
@@ -23,47 +21,52 @@ const statusTone = {
 
 interface CatalogTableProps {
   courses: CourseListItem[];
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
 }
 
-export function CatalogTable({ courses }: CatalogTableProps) {
+export function CatalogTable({ courses, selectedId, onSelect }: CatalogTableProps) {
   const columns: ColumnDef<CourseListItem, unknown>[] = [
     {
-      accessorKey: 'code',
-      header: 'Code',
-      meta: {
-        className: 'w-24 font-mono text-sm font-semibold text-pine whitespace-nowrap',
+      id: 'course',
+      header: 'Course',
+      meta: { className: 'min-w-[300px]' },
+      cell: ({ row }) => {
+        const c = row.original;
+        return (
+          <div className="flex flex-col">
+            <span className="font-mono text-sm font-semibold text-pine">{c.code}</span>
+            <span className="text-sm font-medium text-ink">{c.title}</span>
+          </div>
+        );
       },
-    },
-    {
-      accessorKey: 'title',
-      header: 'Course Title',
-      meta: { className: 'min-w-[200px] text-sm font-medium' },
     },
     {
       accessorKey: 'credits',
       header: 'Credits',
       meta: {
         align: 'right',
-        className: 'w-20 font-mono text-xs tabular-nums text-ink-soft whitespace-nowrap',
+        className: 'w-24 font-mono text-xs tabular-nums text-ink-soft',
       },
       cell: ({ row }) => `${row.original.credits} cr`,
     },
     {
-      accessorKey: 'sectionCount',
-      header: 'Sections',
-      meta: { align: 'right', className: 'w-24 text-xs text-ink-soft whitespace-nowrap' },
-      cell: ({ row }) => {
-        const count = row.original.sectionCount;
-        return `${count} ${count === 1 ? 'sec' : 'secs'}`;
-      },
-    },
-    {
-      id: 'seats',
-      header: 'Capacity',
-      meta: { align: 'right', className: 'w-32' },
+      id: 'availability',
+      header: 'Availability',
+      meta: { align: 'right', className: 'w-48' },
       cell: ({ row }) => {
         const c = row.original;
-        return <SeatMeter enrolled={c.totalEnrolled} capacity={c.totalCapacity} />;
+        const open = Math.max(c.totalCapacity - c.totalEnrolled, 0);
+        return (
+          <div className="flex flex-col items-end gap-1">
+            <span className="text-xs font-medium text-ink">
+              {open > 0 ? `${open} seats open` : 'Full / Waitlisting'}
+            </span>
+            <span className="text-[10px] text-ink-soft">
+              across {c.sectionCount} section{c.sectionCount === 1 ? '' : 's'}
+            </span>
+          </div>
+        );
       },
     },
     {
@@ -80,17 +83,23 @@ export function CatalogTable({ courses }: CatalogTableProps) {
     {
       id: 'action',
       header: '',
-      meta: { align: 'right', className: 'w-24' },
-      cell: ({ row }) => (
-        <Link
-          href={`/courses/${row.original.id}`}
-          className="inline-flex h-8 items-center justify-center rounded-sm border border-pine bg-pine px-3 text-xs font-medium text-paper transition-colors hover:bg-pine-dark"
-        >
-          View
-        </Link>
+      meta: { align: 'right', className: 'w-32' },
+      cell: () => (
+        <span className="group inline-flex h-8 items-center justify-center gap-1.5 rounded-sm border border-pine/20 bg-transparent px-4 text-xs font-medium text-pine transition-colors group-hover:bg-pine-soft">
+          Select
+        </span>
       ),
     },
   ];
 
-  return <DataTable columns={columns} data={courses} />;
+  return (
+    <DataTable
+      columns={columns}
+      data={courses}
+      onRowClick={onSelect ? (c) => onSelect(c.id) : undefined}
+      rowClassName={
+        selectedId ? (c) => (c.id === selectedId ? 'bg-pine-soft' : '') : undefined
+      }
+    />
+  );
 }

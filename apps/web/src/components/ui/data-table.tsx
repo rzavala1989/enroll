@@ -27,6 +27,8 @@ interface DataTableProps<TData, TValue> {
   data: TData[];
   searchKey?: string;
   searchPlaceholder?: string;
+  onRowClick?: (row: TData) => void;
+  rowClassName?: (row: TData) => string;
 }
 
 export function DataTable<TData, TValue>({
@@ -34,6 +36,8 @@ export function DataTable<TData, TValue>({
   data,
   searchKey,
   searchPlaceholder = 'Search...',
+  onRowClick,
+  rowClassName,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
@@ -127,7 +131,14 @@ export function DataTable<TData, TValue>({
           <TBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TR key={row.id}>
+                <TR
+                  key={row.id}
+                  className={cn(
+                    rowClassName?.(row.original) ?? '',
+                    onRowClick ? 'cursor-pointer transition-colors hover:bg-black/5' : '',
+                  )}
+                  onClick={() => onRowClick?.(row.original)}
+                >
                   {row.getVisibleCells().map((cell) => {
                     const meta = cell.column.columnDef.meta as CustomMeta | undefined;
                     const align = meta?.align ?? 'left';
