@@ -8,6 +8,7 @@ import { getIdentity } from '@/lib/identity';
 
 import { ContactAdvisorButton } from './contact-advisor';
 import { CurrentScheduleTable, CompletedCoursesTable } from './profile-tables';
+import { ScheduleGrid } from './schedule-grid';
 
 export const metadata: Metadata = { title: 'My profile' };
 
@@ -100,6 +101,9 @@ export default async function ProfilePage() {
                 >
                   Manage enrollments →
                 </Link>
+              </div>
+              <div className="mb-8">
+                <ScheduleGrid enrollments={active} />
               </div>
               <CurrentScheduleTable enrollments={active} />
             </section>
