@@ -1,7 +1,7 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
-import type { CourseListItem } from '@enroll/shared';
+import type { CourseListItem, Hold } from '@enroll/shared';
 
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,7 @@ interface CatalogTableProps {
   selectedId?: string | null;
   onSelect?: (id: string) => void;
   enrolledCredits?: number;
+  holds?: Hold[];
 }
 
 export function CatalogTable({
@@ -18,6 +19,7 @@ export function CatalogTable({
   selectedId,
   onSelect,
   enrolledCredits,
+  holds,
 }: CatalogTableProps) {
   const columns: ColumnDef<CourseListItem, unknown>[] = [
     {
@@ -60,13 +62,12 @@ export function CatalogTable({
         const c = row.original;
         const open = Math.max(c.totalCapacity - c.totalEnrolled, 0);
 
-        // Mock some domain intelligence for the UI
-        if (c.code === 'CS110') return <Badge tone="full">Time conflict</Badge>;
-        if (c.code === 'CS141') return <Badge tone="amber">Prereq missing</Badge>;
+        if (holds && holds.length > 0) return <Badge tone="full">Hold</Badge>;
         if (enrolledCredits && enrolledCredits + c.credits > 18)
           return <Badge tone="amber">Credit cap risk</Badge>;
         if (open === 0) return <Badge tone="wait">Waitlist open</Badge>;
-        return <Badge tone="pine">Eligible</Badge>;
+
+        return <Badge tone="pine">View details</Badge>;
       },
     },
     {

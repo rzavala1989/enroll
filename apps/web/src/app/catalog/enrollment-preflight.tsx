@@ -1,27 +1,68 @@
 import { useState } from 'react';
-import type { CourseListItem, Section } from '@enroll/shared';
+import type {
+  CourseListItem,
+  Section,
+  MyEnrollment,
+  Hold,
+  CourseDetail,
+} from '@enroll/shared';
+import { EnrollmentStatus } from '@enroll/shared';
+import { hasTimeConflict } from '@/lib/time-conflict';
 
 export function EnrollmentPreflight({
   course,
   section,
   enrolledCredits,
+  enrollments,
+  holds,
+  detail,
   onClose,
 }: {
   course: CourseListItem;
   section: Section;
   enrolledCredits: number;
+  enrollments: MyEnrollment[];
+  holds: Hold[];
+  detail: CourseDetail;
   onClose: () => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
 
-  // Mock domain logic for preflight
-  const isTimeConflict = course.code === 'CS110';
-  const isPrereqMissing = course.code === 'CS141';
+  const activeSchedules = enrollments
+    .filter(
+      (e) =>
+        e.status === EnrollmentStatus.ENROLLED ||
+        e.status === EnrollmentStatus.WAITLISTED,
+    )
+    .map((e) => e.section.meetingPattern);
+
+  const completedCodes = new Set(
+    enrollments
+      .filter((e) => e.status === EnrollmentStatus.COMPLETED)
+      .map((e) => e.course.code),
+  );
+
+  const isTimeConflict = activeSchedules.some((active) =>
+    hasTimeConflict(section.meetingPattern, active),
+  );
+  const isPrereqMissing =
+    detail.prerequisites.length > 0 &&
+    !detail.prerequisites.every((p) => completedCodes.has(p.code));
   const creditCapRisk = enrolledCredits + course.credits > 18;
   const isFull = section.capacity - section.enrolledCount <= 0;
+  const hasHold = holds.length > 0;
+  const waitlistFull =
+    section.waitlistCap !== null && section.waitlistCount >= section.waitlistCap;
 
-  const canEnroll = !isTimeConflict && !isPrereqMissing && !creditCapRisk && !isFull;
-  const canWaitlist = !isTimeConflict && !isPrereqMissing && !creditCapRisk && isFull;
+  const canEnroll =
+    !isTimeConflict && !isPrereqMissing && !creditCapRisk && !isFull && !hasHold;
+  const canWaitlist =
+    !isTimeConflict &&
+    !isPrereqMissing &&
+    !creditCapRisk &&
+    isFull &&
+    !waitlistFull &&
+    !hasHold;
 
   const handleAction = async () => {
     setSubmitting(true);
@@ -50,8 +91,14 @@ export function EnrollmentPreflight({
             <span>Registration window open</span>
           </li>
           <li className="flex items-center gap-3">
-            <span className="text-pine">✓</span>
-            <span>No advisor hold</span>
+            {hasHold ? (
+              <span className="text-full">✕ Advisor hold on record</span>
+            ) : (
+              <>
+                <span className="text-pine">✓</span>
+                <span>No advisor hold</span>
+              </>
+            )}
           </li>
           <li className="flex items-center gap-3">
             {isPrereqMissing ? (
@@ -87,7 +134,11 @@ export function EnrollmentPreflight({
           </li>
           <li className="flex items-center gap-3">
             {isFull ? (
-              <span className="text-wait">! Section is full, waitlist available</span>
+              waitlistFull ? (
+                <span className="text-full">✕ Section and waitlist are full</span>
+              ) : (
+                <span className="text-wait">! Section is full, waitlist available</span>
+              )
             ) : (
               <>
                 <span className="text-pine">✓</span>

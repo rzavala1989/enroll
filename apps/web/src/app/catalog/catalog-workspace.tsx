@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import type { CourseListItem, CourseDetail } from '@enroll/shared';
+import type { CourseListItem, CourseDetail, MyEnrollment, Hold } from '@enroll/shared';
 
 import { apiFetch } from '@/lib/api/client';
 import { deptLabel, DEPT_IMAGES, DEPT_COLORS } from '@/lib/departments';
@@ -23,6 +23,7 @@ function DepartmentSection({
   selectedId: string | null;
   onSelect: (id: string) => void;
   enrolledCredits?: number;
+  holds?: Hold[];
 }) {
   const image = DEPT_IMAGES[dept];
   const color = DEPT_COLORS[dept] ?? 'var(--color-ink)';
@@ -69,6 +70,7 @@ function DepartmentSection({
           selectedId={selectedId}
           onSelect={onSelect}
           enrolledCredits={enrolledCredits}
+          holds={holds}
         />
       </div>
     </section>
@@ -79,10 +81,14 @@ export function CatalogWorkspace({
   flatCourses,
   groups,
   enrolledCredits,
+  enrollments,
+  holds,
 }: {
   flatCourses: CourseListItem[] | null;
   groups: [string, CourseListItem[]][] | null;
   enrolledCredits: number;
+  enrollments: MyEnrollment[];
+  holds: Hold[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<CourseDetail | null>(null);
@@ -123,6 +129,7 @@ export function CatalogWorkspace({
               selectedId={selectedId}
               onSelect={setSelectedId}
               enrolledCredits={enrolledCredits}
+              holds={holds}
             />
           ))
         ) : flatCourses ? (
@@ -131,6 +138,7 @@ export function CatalogWorkspace({
             selectedId={selectedId}
             onSelect={setSelectedId}
             enrolledCredits={enrolledCredits}
+            holds={holds}
           />
         ) : null}
       </div>
@@ -142,6 +150,8 @@ export function CatalogWorkspace({
             listItem={selectedCourseListItem}
             detail={detail}
             enrolledCredits={enrolledCredits}
+            enrollments={enrollments}
+            holds={holds}
           />
         ) : (
           <div className="flex h-64 flex-col items-center justify-center rounded-sm border border-dashed border-line p-6 text-center">

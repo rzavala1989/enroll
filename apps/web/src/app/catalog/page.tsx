@@ -6,6 +6,7 @@ import type {
   CourseListItem,
   PaginatedCoursesResponse,
   StudentProfile,
+  MyEnrollment,
 } from '@enroll/shared';
 
 import { EmptyState } from '@/components/ui/empty-state';
@@ -38,9 +39,10 @@ export default async function CatalogPage({
   const params = parseCatalogParams(await searchParams);
   const qs = serializeCatalogParams(params);
 
-  const [result, profile] = await Promise.all([
+  const [result, profile, myEnrollments] = await Promise.all([
     apiGet<PaginatedCoursesResponse>(`/courses${qs ? `?${qs}` : ''}`),
     apiGet<StudentProfile>('/auth/profile').catch(() => null),
+    apiGet<MyEnrollment[]>('/enrollments').catch(() => []),
   ]);
 
   if (result.total > 0 && params.page > result.totalPages) {
@@ -52,6 +54,7 @@ export default async function CatalogPage({
   const useGrouping = !params.search;
   const groups = useGrouping ? groupByDepartment(result.data) : null;
   const enrolledCredits = profile?.currentTerm?.enrolledCredits ?? 0;
+  const holds = profile?.holds ?? [];
 
   return (
     <div>
@@ -105,6 +108,8 @@ export default async function CatalogPage({
           flatCourses={groups ? null : result.data}
           groups={groups}
           enrolledCredits={enrolledCredits}
+          enrollments={myEnrollments}
+          holds={holds}
         />
       )}
 

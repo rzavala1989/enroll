@@ -1,24 +1,62 @@
-import type { CourseListItem, CourseDetail, Section } from '@enroll/shared';
+import type {
+  CourseListItem,
+  CourseDetail,
+  Section,
+  MyEnrollment,
+  Hold,
+} from '@enroll/shared';
+import { EnrollmentStatus } from '@enroll/shared';
 import { useState } from 'react';
 import { EnrollmentPreflight } from './enrollment-preflight';
+import { hasTimeConflict } from '@/lib/time-conflict';
 
 export function CourseDetailDrawer({
   listItem,
   detail,
   enrolledCredits,
+  enrollments,
+  holds,
 }: {
   listItem: CourseListItem;
   detail: CourseDetail | null;
   enrolledCredits: number;
+  enrollments: MyEnrollment[];
+  holds: Hold[];
 }) {
   const [selectedSection, setSelectedSection] = useState<Section | null>(null);
 
   const isCore = listItem.code.includes('1');
   const requirementLabel = isCore ? 'Major core' : 'Major elective';
 
-  // Mock domain logic for portfolio presentation
-  const isTimeConflict = listItem.code === 'CS110';
-  const isPrereqMissing = listItem.code === 'CS141';
+  const activeSchedules = enrollments
+    .filter(
+      (e) =>
+        e.status === EnrollmentStatus.ENROLLED ||
+        e.status === EnrollmentStatus.WAITLISTED,
+    )
+    .map((e) => e.section.meetingPattern);
+
+  const completedCodes = new Set(
+    enrollments
+      .filter((e) => e.status === EnrollmentStatus.COMPLETED)
+      .map((e) => e.course.code),
+  );
+
+  // If we don't have detail yet, we can't be sure about prereqs or time conflicts for a specific section.
+  // But we can check if the course *overall* has any section that fits.
+  let isPrereqMissing = false;
+  if (detail && detail.prerequisites.length > 0) {
+    isPrereqMissing = !detail.prerequisites.every((p) => completedCodes.has(p.code));
+  }
+
+  // A course has a time conflict overall if EVERY section conflicts with the existing schedule.
+  let isTimeConflict = false;
+  if (detail && detail.sections.length > 0 && activeSchedules.length > 0) {
+    isTimeConflict = detail.sections.every((sec) =>
+      activeSchedules.some((active) => hasTimeConflict(sec.meetingPattern, active)),
+    );
+  }
+
   const creditCapRisk = enrolledCredits + listItem.credits > 18;
 
   return (
@@ -133,6 +171,9 @@ export function CourseDetailDrawer({
           course={listItem}
           section={selectedSection}
           enrolledCredits={enrolledCredits}
+          enrollments={enrollments}
+          holds={holds}
+          detail={detail!}
           onClose={() => setSelectedSection(null)}
         />
       )}
