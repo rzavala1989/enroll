@@ -2,7 +2,80 @@
 
 Course registration system designed to handle the concurrency and data integrity challenges of registration day. Built as a pnpm monorepo with a NestJS API and a Next.js web app.
 
-![System Dashboard](./docs/screenshot.png)
+## Architecture
+
+### Runtime and data flow
+
+```mermaid
+flowchart TB
+  User["Student, advisor, or admin"] --> Web
+
+  subgraph Compose["Docker Compose or host development"]
+    Web["Next.js 16 web app<br/>React 19 · App Router · Tailwind · TanStack Table<br/>:3001"]
+
+    subgraph APIProcess["NestJS 11 API · /api/v1 · :3000"]
+      API["REST API<br/>JWT auth · RBAC · throttling<br/>Swagger in development · Prometheus metrics"]
+      Domain["Catalog, sections, enrollment,<br/>waitlist, notifications, and users"]
+      Worker["BullMQ waitlist worker"]
+      Scheduler["Scheduled workers<br/>audit drain, retention, expiry sweep"]
+      API --> Domain
+    end
+
+    Migrate["One-shot migration container<br/>Prisma migrate deploy"]
+  end
+
+  Web -->|"/api/* rewrite"| API
+  Domain -->|"Prisma transactions<br/>Section row locks + audit outbox"| Postgres[(Postgres 16<br/>source of truth)]
+  Migrate --> Postgres
+  Domain <-->|"catalog cache"| Redis[(Redis 7)]
+  Domain -->|"enqueue promotions"| Queue["BullMQ queue"]
+  Queue -->|"stored in / claimed from"| Redis
+  Queue --> Worker
+  Worker -->|"promote waitlisted students<br/>write notifications"| Postgres
+  Scheduler -->|"read and mark outbox rows"| Postgres
+  Scheduler -->|"deliver committed audit events"| Mongo[(MongoDB 7<br/>audit log)]
+```
+
+Enrollment remains a Postgres transaction: a section-level row lock protects
+capacity, and the same commit writes an audit-outbox row. Redis backs both the
+catalog cache and BullMQ; background workers promote the waitlist and write
+notifications. The scheduled outbox drainer sends only committed audit events to
+MongoDB, so a Mongo outage cannot lose the audit record.
+
+### Workspace, delivery, and quality tooling
+
+```mermaid
+flowchart LR
+  Dev["Developer"] --> PNPM["pnpm workspace"]
+
+  subgraph Workspace["Monorepo"]
+    Shared["@enroll/shared<br/>TypeScript contracts"]
+    APIApp["apps/api<br/>NestJS + Prisma"]
+    WebApp["apps/web<br/>Next.js"]
+    Shared --> APIApp
+    Shared --> WebApp
+  end
+
+  PNPM --> Turbo["Turborepo<br/>build ordering + dev TUI"]
+  Turbo --> Shared
+  Turbo --> APIApp
+  Turbo --> WebApp
+  PNPM --> Compose["Docker Compose<br/>local infra and production-like stack"]
+  PNPM --> Prisma["Prisma CLI + migrate-safe.sh<br/>schema, migrations, seed, Studio"]
+
+  PNPM --> Quality["Husky + lint-staged<br/>Prettier + ESLint"]
+  PNPM --> Tests["Jest API tests · Vitest web tests<br/>Playwright E2E · Storybook components"]
+  PNPM --> Load["Grafana k6<br/>smoke, registration-rush, catalog-browse"]
+
+  GitHub["GitHub Actions"] --> Verify["typecheck · lint · unit tests · builds"]
+  GitHub --> Drift["migration-drift guard"]
+  GitHub --> Integration["Testcontainers Postgres<br/>concurrency integration tests"]
+  Dependabot["Dependabot"] --> GitHub
+```
+
+The diagrams intentionally show every first-class runtime dependency and repository
+tooling path. Individual libraries used inside those components are documented in
+their workspace `package.json` files.
 
 ## Layout
 
