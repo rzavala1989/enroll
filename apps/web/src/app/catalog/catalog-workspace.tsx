@@ -16,6 +16,7 @@ function DepartmentSection({
   selectedId,
   onSelect,
   enrolledCredits,
+  holds,
 }: {
   dept: string;
   courses: CourseListItem[];
