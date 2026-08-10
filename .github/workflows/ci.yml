@@ -54,6 +54,9 @@ jobs:
       - name: Test API
         run: pnpm --filter api test
 
+      - name: Install Playwright browsers
+        run: pnpm --filter web exec playwright install --with-deps
+
       - name: Test web
         run: pnpm --filter web test
 
