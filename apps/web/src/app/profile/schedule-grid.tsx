@@ -191,24 +191,28 @@ export function ScheduleGrid({ enrollments }: { enrollments: MyEnrollment[] }) {
                   const leftPct = slot.colIndex * widthPct;
 
                   const conflictClasses = slot.isConflict
-                    ? 'bg-full/10 border-full/50 text-full border-dashed ring-1 ring-full/30 z-10'
+                    ? 'bg-full/10 border-full text-full border-dashed ring-1 ring-full/30 z-10'
                     : slot.colorClass;
 
                   return (
                     <div
                       key={i}
-                      className={`absolute rounded-sm border p-2 text-xs shadow-sm transition-all hover:brightness-95 ${conflictClasses}`}
+                      className={`absolute flex flex-col overflow-hidden rounded-sm border p-1.5 shadow-sm transition-all hover:brightness-95 ${conflictClasses}`}
                       style={{
-                        top,
-                        height,
+                        top: `${top}px`,
+                        height: `${height}px`,
                         width: `calc(${widthPct}% - 4px)`,
                         left: `calc(${leftPct}% + 2px)`,
                       }}
                     >
-                      <div className="font-semibold leading-tight">{slot.courseCode}</div>
-                      <div className="truncate text-[10px] opacity-80">{slot.room}</div>
+                      <div className="font-semibold leading-none text-[11px] truncate">
+                        {slot.courseCode}
+                      </div>
+                      <div className="mt-1 truncate text-[9px] opacity-80">
+                        {slot.room}
+                      </div>
                       {slot.isConflict && (
-                        <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-full">
+                        <div className="mt-auto pt-1 text-[9px] font-bold uppercase tracking-wider text-full">
                           Conflict
                         </div>
                       )}
