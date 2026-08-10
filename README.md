@@ -1,6 +1,7 @@
 # Enroll
 
-Course registration system designed to handle the concurrency and data integrity challenges of registration day. Built as a pnpm monorepo with a NestJS API and a Next.js web app.
+Course registration system built for registration-day concurrency and data integrity.
+It is a pnpm monorepo with a NestJS API and a Next.js web app.
 
 ## Architecture
 
@@ -91,17 +92,26 @@ scripts/        migrate-safe.sh, the Prisma generated-column workaround
 
 ## Architecture decisions
 
-- **Redis and BullMQ**: Offloads non-critical paths from the enrollment transaction. Waitlist promotion sweeps and audit log draining are enqueued to background workers, keeping the main request cycle fast and decoupled from downstream failures.
-- **Postgres row locks**: Enrollment concurrency is serialized via `SELECT ... FOR UPDATE` at the section level. This avoids complex distributed locking and guarantees safe capacity checks without over-enrolling.
-- **Mongo audit outbox**: Audit events are saved transactionally alongside the domain mutation in Postgres (the outbox pattern), then drained to Mongo asynchronously. This ensures audit trails are never lost if the external datastore is temporarily unavailable.
-- **Generated search vector workaround**: `Course.searchVector` uses a Postgres generated column for full-text search. Prisma cannot model this natively, creating drift where `prisma migrate dev` attempts to drop it. `migrate-safe.sh` acts as a deployment safety net, scrubbing the diff before apply.
-- **Concurrency testing**: A dedicated `k6` load profile (`load/registration-day.js`) simulates the thundering herd of a registration window opening. Assertions verify that capacity is perfectly respected under high contention and that lock wait times remain acceptable.
+- **Redis and BullMQ:** Waitlist promotion runs in a background worker instead of
+  the enrollment request.
+- **Postgres row locks:** `SELECT ... FOR UPDATE` on a section serializes capacity
+  checks and prevents over-enrollment.
+- **Mongo audit outbox:** The transaction writes the domain change and an outbox
+  record in Postgres. A worker later copies the record to MongoDB.
+- **Generated search vector:** `Course.searchVector` is a Postgres generated
+  column that Prisma cannot model. `migrate-safe.sh` removes the resulting invalid
+  migration changes before deployment.
+- **Concurrency tests:** `load/registration-day.js` uses k6 to test capacity and
+  lock-wait behavior under contention.
 
-## UI & Presentation Architecture
+## UI implementation
 
-- **Enterprise-Grade DataGrids**: Complex table views (Catalogs, Schedules, and Academic History) are powered by `@tanstack/react-table`. This achieves perfectly ergonomic column alignment, strict pixel-perfect widths, and seamless type-safe data bindings, far surpassing brittle flex-box wrappers.
-- **Bespoke Product Layouts**: The application interface rejects generic "bento box" card patterns in favor of bespoke, staff-level design principles. Core pages utilize explicit 12-column CSS grids to strictly enforce main-content vs. sidebar proportions (e.g., 8:4 or 9:3 splits), ensuring robust data displays have breathing room across all viewports.
-- **Polished Aesthetics & Typography**: The presentation tier leverages a cohesive, commanding design system with custom micro-interactions. Dynamic status badge theming, rich typography (`font-display`), bespoke gradient avatars, and sophisticated borders (`ring-pine/20`) construct an impeccable and trustworthy user experience.
+- **Tables:** Catalog, schedule, and academic-history tables use
+  `@tanstack/react-table`.
+- **Layout:** Main pages use 12-column CSS grids, including 8:4 and 9:3
+  content/sidebar splits.
+- **Components:** Shared UI components provide status badges, avatars, typography,
+  and border styles.
 
 ## Prerequisites
 
@@ -126,14 +136,16 @@ other machine's database while everything looked fine. Override with
 ./setup.sh        # or: pnpm setup
 ```
 
-Checks for OrbStack and pnpm (starting the OrbStack engine if it is installed but
-idle), installs dependencies, builds `@enroll/shared`, brings up the three
-containers and waits for their health checks, writes `apps/api/.env`, applies
-migrations, and seeds. It is idempotent, so re-run it whenever the stack drifts.
+The script checks for OrbStack and pnpm, starts an installed but idle OrbStack
+engine, installs dependencies, builds `@enroll/shared`, starts the three
+infrastructure containers, waits for their health checks, writes `apps/api/.env`,
+applies migrations, and seeds the database. It is idempotent; re-run it when the
+stack drifts.
+
 `--reset` wipes the volumes first; `--no-seed` skips the seed.
 
-Seeded logins are 50 students, 5 advisors, and 2 admins, every one with the
-password `password`. Emails are faker-generated, so list them rather than guess:
+The seed creates 50 students, 5 advisors, and 2 admins. All use the password
+`password`. Their email addresses are generated, so list them with:
 
 ```bash
 pnpm db:studio
@@ -160,17 +172,15 @@ saves it to `.env.bak` before overwriting rather than dropping the edits.
 
 ## Running
 
-Two modes. Both want ports 3000 and 3001, so each one hands over from the other
-rather than letting you discover the clash as a bare `EADDRINUSE` from Next that
-never mentions the container actually holding the port.
+There are two modes. Both use ports 3000 and 3001, so each mode stops the other
+before it starts.
 
-`pnpm dev` stops the api and web containers and leaves the infrastructure up, so
-the database survives the switch. `pnpm stack:up` refuses to start while a host
-dev server holds a port. Either takes `--force` to kill whatever is in the way.
+`pnpm dev` stops the API and web containers but leaves infrastructure running.
+`pnpm stack:up` refuses to start while a host development server holds a port.
+Either accepts `--force` to stop the conflicting process.
 
-**Always on.** Everything, including the API and the web app, runs as a container
-with `restart: unless-stopped`. OrbStack is set to start at login, so after a
-reboot the whole stack is simply up with nothing to type.
+**Containers.** The API and web app run with `restart: unless-stopped`. With
+OrbStack configured to start at login, the stack restarts after a reboot.
 
 ```bash
 pnpm stack:up        # build and start all five containers
@@ -183,14 +193,14 @@ pnpm stack:down      # stop everything
 in watch mode.
 
 ```bash
-pnpm dev             # stops the api and web containers, then watch mode
+pnpm dev             # stops the API and web containers, then starts watch mode
 pnpm dev --force     # also kill host processes squatting on the ports
 pnpm dev:api         # or one at a time, no handover
 pnpm dev:web
 ```
 
-`pnpm dev` runs through Turbo's TUI (`ui: "tui"` in `turbo.json`), arrow keys to
-switch panes:
+`pnpm dev` runs through Turbo's TUI (`ui: "tui"` in `turbo.json`). Use the arrow
+keys to switch panes:
 
 ```
 api#dev           nest start --watch
@@ -200,19 +210,17 @@ web#dev           next dev --turbopack -p 3001
 //#dev:mongo      docker compose logs -f mongo
 ```
 
-The three infrastructure panes **follow** their containers rather than running
-them. Letting Turbo own `docker compose up` would tie the database's lifetime to
-the dev session, so quitting the TUI would take Postgres down and undo the
-always-on setup. They are root tasks (the `//#` prefix), which is what lets them
-exist without inventing a workspace package per service.
+The three infrastructure panes tail container logs. Turbo does not run
+`docker compose up`, so leaving the TUI does not stop Postgres. They are root
+tasks (the `//#` prefix), so they do not need workspace packages.
 
 Turbo degrades to prefixed line output on its own when there is no terminal, and
 `scripts/dev.sh` takes the plain `pnpm --parallel` path when stdin or stdout is
 not a TTY, so `pnpm dev | tee` and CI stay readable.
 
 Turbo also makes `@enroll/shared` build before either app starts, via
-`dependsOn: ["^build"]`. That removes the standing footgun where a fresh clone
-fails with a missing-export error that reads like a code bug.
+`dependsOn: ["^build"]`. This prevents a fresh clone from failing on missing
+shared-package exports.
 
 Migrations run as a one-shot `migrate` container that must exit 0 before the API
 starts, rather than from the API's entrypoint where replicas would race each
@@ -247,7 +255,8 @@ sign-in if you are logged out.
 
 ## Load testing (Grafana k6)
 
-To simulate the thundering herd of a registration window opening and verify the locking architecture under high contention, the repository includes a Grafana k6 load profile.
+The repository includes Grafana k6 profiles for registration-day contention and
+catalog browsing.
 
 Ensure you have [Grafana k6 installed](https://grafana.com/docs/k6/latest/set-up/install-k6/), the database is seeded (`pnpm --filter api prisma db seed`), and the stack is running. Then, execute the script by passing the targeted section IDs (e.g. from the seeded database):
 
@@ -257,14 +266,15 @@ SECTION_IDS=sec-1,sec-2,sec-3 \
 k6 run load/registration-day.js
 ```
 
-This ramps up to 1,000 concurrent Virtual Users (VUs) attempting to claim seats. The script automatically verifies that `seat_overcommit` remains zero and measures the `p99` latency cost of pessimistic locking.
+This profile ramps to 1,000 virtual users attempting to claim seats. It verifies
+that `seat_overcommit` remains zero and measures p99 lock-wait latency.
 
 ## Scripts
 
 | Script                      | What it does                                             |
 | --------------------------- | -------------------------------------------------------- |
-| `./setup.sh`                | Clone to running stack, idempotent                       |
-| `pnpm stack:up` / `:down`   | All five containers, always-on mode                      |
+| `./setup.sh`                | Set up a running stack; safe to re-run                   |
+| `pnpm stack:up` / `:down`   | Start or stop the five-container stack                   |
 | `pnpm stack:rebuild`        | Rebuild the api and web images after a code change       |
 | `pnpm dev`                  | Both apps in watch mode on the host                      |
 | `pnpm dev:api`              | NestJS in watch mode                                     |
@@ -274,7 +284,7 @@ This ramps up to 1,000 concurrent Virtual Users (VUs) attempting to claim seats.
 | `pnpm infra:reset`          | Drop the volumes and start clean                         |
 | `pnpm infra:logs` / `:ps`   | Tail container logs, list container status               |
 | `pnpm env:local` / `:cloud` | Swap the API between containers and hosted services      |
-| `pnpm verify`               | Typecheck, lint, test, and build everything              |
+| `pnpm verify`               | Typecheck, lint, test, and build all workspaces          |
 | `pnpm test`                 | Unit and component tests for both apps                   |
 | `pnpm test:integration`     | Concurrency invariants against a real Postgres (Docker)  |
 | `pnpm db:migrate:safe`      | Generate and apply a migration, scrubbing FTS drift      |
@@ -293,7 +303,7 @@ reintroduces them.
 
 ## Deployment notes
 
-Two things do not survive a naive scale-out:
+For multiple replicas:
 
 - **Schedulers.** The audit outbox drain, the hourly waitlist expiry, and the
   promotion safety-net sweep are timer-driven and not leader-elected. Run web
@@ -358,16 +368,16 @@ All eligibility checks apply to the target section, with two adjustments:
 When the source enrollment was ENROLLED, the old section's counter is decremented
 and a waitlist promotion is enqueued, exactly as with a regular drop.
 
-## Failure modes handled
+## Failure handling
 
-The system is designed to fail predictably under load and edge-case conditions:
-
-- **Over-enrollment:** Prevented by `SELECT ... FOR UPDATE` row locks on the Section table. High concurrency will queue at the database level rather than overselling seats.
-- **Duplicate active enrollments:** Prevented by a unique composite index and transactional checks. A student cannot hold an active `ENROLLED` or `WAITLISTED` state in multiple sections of the same course.
-- **Advisor hold:** Checked unconditionally at the start of the enrollment transaction. Blocks all add/drop activity until a staff member releases it.
-- **Prereq failure:** Course prerequisite graphs are validated against the student's completed academic history. Missing prerequisites immediately abort the transaction.
-- **Time conflict:** Checked via algorithmic overlap detection of meeting patterns against the student's active schedule for the term.
-- **Queue/outbox downtime:** The transactional outbox pattern guarantees audit events are persisted in Postgres alongside the domain mutation. If the background Mongo drain or Redis waitlist sweep fails, messages remain in the outbox/queue to be retried automatically when infrastructure recovers.
+- **Over-enrollment:** Section row locks serialize capacity checks.
+- **Duplicate active enrollments:** A composite index and transaction checks prevent
+  a student from holding active enrollments in multiple sections of one course.
+- **Advisor holds:** Enrollment checks for an unreleased hold before add or drop.
+- **Prerequisites and time conflicts:** The transaction rejects invalid academic
+  history and overlapping meeting patterns.
+- **Queue or audit-store outages:** The outbox and queue retain pending work for
+  retry when Redis or MongoDB recovers.
 
 ## Data model
 
@@ -388,33 +398,32 @@ Additions beyond the base enrollment tables:
 
 Two planned phases are not yet built.
 
-**AI degree advisor.** An LLM-backed endpoint that reads a student's transcript
-(completed enrollments), their program requirements, and the current catalog to
-suggest a next-semester schedule. Would use structured output from the model to
-produce a ranked list of section recommendations with reasoning. The main design
-question is whether to run it synchronously (slow but simple) or queue it as a
-background job and notify when ready.
+**Degree advisor.** An LLM-backed endpoint could read a student's completed
+enrollments, program requirements, and the current catalog to suggest a
+next-semester schedule. It would return structured section recommendations. The
+open design question is whether it should run synchronously or as a background job.
 
 **Grades, instructor role, and tuition.** Three related features that close the
 registration lifecycle:
 
 - A `grade` column on Enrollment, set by a new INSTRUCTOR role scoped to their
-  own sections. The COMPLETED status transition would become grade-gated rather
-  than manual.
+  own sections. The COMPLETED status transition would require a grade.
 - Tuition calculation: credit-hour rates, fee schedules, and a billing summary
-  endpoint. Probably a separate `Billing` module rather than bolting it onto
-  enrollment.
+  endpoint, likely in a separate `Billing` module.
 - An instructor dashboard for viewing rosters, entering grades, and managing
   section settings.
 
-## What I'd improve in production
+## Production follow-ups
 
-While this architecture handles registration load securely, a production rollout would need a few structural additions:
-
-- **Read Replicas & CQRS:** The catalog and profile views currently query the primary Postgres database. In a real registration event, I'd split reads to a dedicated replica or serve catalog state entirely from a Redis cache to protect the mutation database.
-- **Circuit Breakers:** External integrations (like an identity provider or billing API) would need circuit breakers to prevent cascading failures if they go down during peak traffic.
-- **Distributed Tracing:** Implementing OpenTelemetry (OTel) to trace requests from the Next.js frontend, through the NestJS API, down to the BullMQ workers and Prisma queries. This is critical for diagnosing latency spikes under load.
-- **Dead Letter Queues (DLQ):** While the outbox pattern ensures durability, I'd implement proper DLQ monitoring and alerting for audit events or waitlist promotions that exhaust their retry limits.
+- **Read replicas or a read model:** Catalog and profile reads currently use the
+  primary Postgres database. A replica or Redis-backed catalog read model would
+  protect the mutation path during registration peaks.
+- **Circuit breakers:** External services such as an identity provider or billing
+  API need isolation from cascading failures.
+- **Distributed tracing:** OpenTelemetry could trace requests across the web app,
+  API, BullMQ workers, and Prisma queries.
+- **Dead-letter queues:** Monitor and alert on audit or waitlist jobs that exhaust
+  retries.
 
 ## Further reading
 
