@@ -26,7 +26,7 @@ flowchart TB
   end
 
   Web -->|"/api/* rewrite"| API
-  Domain -->|"Prisma transactions<br/>Section row locks + audit outbox"| Postgres[(Postgres 16<br/>source of truth)]
+  Domain -->|"Prisma transactions<br/>Section row locks, plus the audit outbox"| Postgres[(Postgres 16<br/>source of truth)]
   Migrate --> Postgres
   Domain <-->|"catalog cache"| Redis[(Redis 7)]
   Domain -->|"enqueue promotions"| Queue["BullMQ queue"]
@@ -51,20 +51,20 @@ flowchart LR
 
   subgraph Workspace["Monorepo"]
     Shared["@enroll/shared<br/>TypeScript contracts"]
-    APIApp["apps/api<br/>NestJS + Prisma"]
+    APIApp["apps/api<br/>NestJS / Prisma"]
     WebApp["apps/web<br/>Next.js"]
     Shared --> APIApp
     Shared --> WebApp
   end
 
-  PNPM --> Turbo["Turborepo<br/>build ordering + dev TUI"]
+  PNPM --> Turbo["Turborepo<br/>build ordering & dev TUI"]
   Turbo --> Shared
   Turbo --> APIApp
   Turbo --> WebApp
   PNPM --> Compose["Docker Compose<br/>local infra and production-like stack"]
-  PNPM --> Prisma["Prisma CLI + migrate-safe.sh<br/>schema, migrations, seed, Studio"]
+  PNPM --> Prisma["Prisma CLI & migrate-safe.sh<br/>schema, migrations, seed, Studio"]
 
-  PNPM --> Quality["Husky + lint-staged<br/>Prettier + ESLint"]
+  PNPM --> Quality["Husky, lint-staged<br/>Prettier & ESLint"]
   PNPM --> Tests["Jest API tests · Vitest web tests<br/>Playwright E2E · Storybook components"]
   PNPM --> Load["Grafana k6<br/>smoke, registration-rush, catalog-browse"]
 
@@ -340,7 +340,7 @@ and avoids locking when it can.
    map to a COMPLETED enrollment in the student's history.
 9. **Time conflicts.** The target section's `meetingPattern` is compared against
    every section the student is active in for the same term. Patterns like
-   `MWF 9:00-9:50` and `TR 1:30-2:45` are parsed into day+minute slots for
+   `MWF 9:00-9:50` and `TR 1:30-2:45` are parsed into day/minute slots for
    overlap detection.
 10. **Credit limit.** The student's active credits in the term plus the target
     course's credits cannot exceed `Term.maxCredits`, unless an
