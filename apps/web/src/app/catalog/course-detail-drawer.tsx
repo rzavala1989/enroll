@@ -3,7 +3,7 @@ import type {
   CourseDetail,
   Section,
   MyEnrollment,
-  Hold,
+  StudentProfileHold,
 } from '@enroll/shared';
 import { EnrollmentStatus } from '@enroll/shared';
 import { useState } from 'react';
@@ -21,7 +21,7 @@ export function CourseDetailDrawer({
   detail: CourseDetail | null;
   enrolledCredits: number;
   enrollments: MyEnrollment[];
-  holds: Hold[];
+  holds: StudentProfileHold[];
 }) {
   const [selectedSection, setSelectedSection] = useState<Section | null>(null);
 

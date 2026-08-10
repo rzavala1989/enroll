@@ -3,7 +3,7 @@ import type {
   CourseListItem,
   Section,
   MyEnrollment,
-  Hold,
+  StudentProfileHold,
   CourseDetail,
 } from '@enroll/shared';
 import { EnrollmentStatus } from '@enroll/shared';
@@ -22,7 +22,7 @@ export function EnrollmentPreflight({
   section: Section;
   enrolledCredits: number;
   enrollments: MyEnrollment[];
-  holds: Hold[];
+  holds: StudentProfileHold[];
   detail: CourseDetail;
   onClose: () => void;
 }) {

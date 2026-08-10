@@ -1,7 +1,7 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
-import type { CourseListItem, Hold } from '@enroll/shared';
+import type { CourseListItem, StudentProfileHold } from '@enroll/shared';
 
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +11,7 @@ interface CatalogTableProps {
   selectedId?: string | null;
   onSelect?: (id: string) => void;
   enrolledCredits?: number;
-  holds?: Hold[];
+  holds?: StudentProfileHold[];
 }
 
 export function CatalogTable({

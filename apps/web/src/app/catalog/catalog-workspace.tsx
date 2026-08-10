@@ -2,7 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import type { CourseListItem, CourseDetail, MyEnrollment, Hold } from '@enroll/shared';
+import type {
+  CourseListItem,
+  CourseDetail,
+  MyEnrollment,
+  StudentProfileHold,
+} from '@enroll/shared';
 
 import { apiFetch } from '@/lib/api/client';
 import { deptLabel, DEPT_IMAGES, DEPT_COLORS } from '@/lib/departments';
@@ -24,7 +29,7 @@ function DepartmentSection({
   selectedId: string | null;
   onSelect: (id: string) => void;
   enrolledCredits?: number;
-  holds?: Hold[];
+  holds?: StudentProfileHold[];
 }) {
   const image = DEPT_IMAGES[dept];
   const color = DEPT_COLORS[dept] ?? 'var(--color-ink)';
@@ -89,7 +94,7 @@ export function CatalogWorkspace({
   groups: [string, CourseListItem[]][] | null;
   enrolledCredits: number;
   enrollments: MyEnrollment[];
-  holds: Hold[];
+  holds: StudentProfileHold[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<CourseDetail | null>(null);
