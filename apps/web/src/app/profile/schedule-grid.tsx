@@ -121,6 +121,57 @@ export function ScheduleGrid({ enrollments }: { enrollments: MyEnrollment[] }) {
             const dayNum = dayIndex + 1; // 1-5
             const daySlots = slots.filter((s) => s.day === dayNum);
 
+            const sortedSlots = [...daySlots].sort((a, b) => a.startMin - b.startMin);
+            type PositionedSlot = (typeof sortedSlots)[0] & {
+              colIndex: number;
+              numCols: number;
+              isConflict: boolean;
+            };
+
+            const positionedSlots: PositionedSlot[] = [];
+
+            let currentGroup: typeof sortedSlots = [];
+            let groupEnd = -1;
+
+            const assignColumns = (group: typeof sortedSlots) => {
+              if (group.length === 0) return;
+              const columns: (typeof sortedSlots)[] = [];
+              const groupSlots = group as PositionedSlot[];
+              for (const slot of groupSlots) {
+                let placed = false;
+                for (let i = 0; i < columns.length; i++) {
+                  const lastSlot = columns[i][columns[i].length - 1];
+                  if (lastSlot.endMin <= slot.startMin) {
+                    columns[i].push(slot);
+                    slot.colIndex = i;
+                    placed = true;
+                    break;
+                  }
+                }
+                if (!placed) {
+                  slot.colIndex = columns.length;
+                  columns.push([slot]);
+                }
+              }
+              for (const slot of groupSlots) {
+                slot.numCols = columns.length;
+                slot.isConflict = columns.length > 1;
+                positionedSlots.push(slot);
+              }
+            };
+
+            for (const slot of sortedSlots) {
+              if (slot.startMin >= groupEnd) {
+                assignColumns(currentGroup);
+                currentGroup = [slot];
+                groupEnd = slot.endMin;
+              } else {
+                currentGroup.push(slot);
+                groupEnd = Math.max(groupEnd, slot.endMin);
+              }
+            }
+            assignColumns(currentGroup);
+
             return (
               <div key={dayNum} className="relative flex-1 border-r border-line">
                 {/* Hourly grid lines */}
@@ -133,17 +184,34 @@ export function ScheduleGrid({ enrollments }: { enrollments: MyEnrollment[] }) {
                 ))}
 
                 {/* Blocks */}
-                {daySlots.map((slot, i) => {
+                {positionedSlots.map((slot, i) => {
                   const top = ((slot.startMin - startHour * 60) / 60) * 60;
                   const height = ((slot.endMin - slot.startMin) / 60) * 60;
+                  const widthPct = 100 / slot.numCols;
+                  const leftPct = slot.colIndex * widthPct;
+
+                  const conflictClasses = slot.isConflict
+                    ? 'bg-full/10 border-full/50 text-full border-dashed ring-1 ring-full/30 z-10'
+                    : slot.colorClass;
+
                   return (
                     <div
                       key={i}
-                      className={`absolute w-[calc(100%-8px)] left-1 rounded-sm border p-2 text-xs shadow-sm transition-all hover:brightness-95 ${slot.colorClass}`}
-                      style={{ top, height }}
+                      className={`absolute rounded-sm border p-2 text-xs shadow-sm transition-all hover:brightness-95 ${conflictClasses}`}
+                      style={{
+                        top,
+                        height,
+                        width: `calc(${widthPct}% - 4px)`,
+                        left: `calc(${leftPct}% + 2px)`,
+                      }}
                     >
                       <div className="font-semibold leading-tight">{slot.courseCode}</div>
                       <div className="truncate text-[10px] opacity-80">{slot.room}</div>
+                      {slot.isConflict && (
+                        <div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-full">
+                          Conflict
+                        </div>
+                      )}
                     </div>
                   );
                 })}
