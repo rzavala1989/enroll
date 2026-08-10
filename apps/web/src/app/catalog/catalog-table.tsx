@@ -10,9 +10,15 @@ interface CatalogTableProps {
   courses: CourseListItem[];
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  enrolledCredits?: number;
 }
 
-export function CatalogTable({ courses, selectedId, onSelect }: CatalogTableProps) {
+export function CatalogTable({
+  courses,
+  selectedId,
+  onSelect,
+  enrolledCredits,
+}: CatalogTableProps) {
   const columns: ColumnDef<CourseListItem, unknown>[] = [
     {
       id: 'course',
