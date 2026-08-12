@@ -98,7 +98,7 @@ export function SiteNav({
     <header className="border-b border-line bg-card">
       {/* Top bar: branding and user */}
       <div className="bg-ink">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-2">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-2">
           <div className="flex items-center gap-6">
             <Link
               href="/catalog"
@@ -259,7 +259,7 @@ export function SiteNav({
       </div>
 
       {/* Navigation tabs */}
-      <div className="mx-auto max-w-5xl px-4">
+      <div className="mx-auto max-w-6xl px-4">
         <nav className="flex items-center" aria-label="Main navigation">
           <NavTab
             href="/catalog"

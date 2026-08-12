@@ -39,7 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       >
         <ToastProvider>
           <NavShell identity={identity} />
-          <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+          <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
         </ToastProvider>
       </body>
     </html>
