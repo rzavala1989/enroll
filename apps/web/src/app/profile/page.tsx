@@ -88,7 +88,7 @@ export default async function ProfilePage() {
 
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-12 lg:items-start">
         {/* Main Content */}
-        <div className="space-y-12 lg:col-span-8 xl:col-span-9 min-w-0">
+        <div className="space-y-12 lg:col-span-9 min-w-0">
           {active.length > 0 ? (
             <section>
               <div className="mb-5 flex items-baseline justify-between">
@@ -137,7 +137,7 @@ export default async function ProfilePage() {
         </div>
 
         {/* Sidebar */}
-        <aside className="w-full space-y-8 lg:col-span-4 xl:col-span-3">
+        <aside className="w-full space-y-8 lg:col-span-3">
           {/* Term Progress */}
           <section>
             <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-ink-soft">

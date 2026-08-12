@@ -124,7 +124,7 @@ export function CatalogWorkspace({
   return (
     <div className="mt-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
       {/* Middle: Course Results */}
-      <div className="space-y-6 lg:col-span-8">
+      <div className="space-y-6 lg:col-span-9">
         {groups ? (
           groups.map(([dept, courses]) => (
             <DepartmentSection
@@ -150,7 +150,7 @@ export function CatalogWorkspace({
       </div>
 
       {/* Right: Schedule Impact Panel */}
-      <div className="sticky top-6 lg:col-span-4">
+      <div className="sticky top-6 lg:col-span-3">
         {selectedCourseListItem ? (
           <CourseDetailDrawer
             listItem={selectedCourseListItem}

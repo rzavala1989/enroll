@@ -7,7 +7,7 @@ export default function CatalogLoading() {
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         {/* Left Table Skeleton */}
-        <div className="lg:col-span-8">
+        <div className="lg:col-span-9">
           <div className="rounded-sm border border-line bg-card overflow-hidden">
             <div className="border-b border-line p-4 flex gap-4">
               <Skeleton className="h-6 w-32" />
@@ -30,7 +30,7 @@ export default function CatalogLoading() {
         </div>
 
         {/* Right Drawer Skeleton */}
-        <div className="lg:col-span-4 sticky top-6">
+        <div className="lg:col-span-3 sticky top-6">
           <div className="rounded-sm border border-line bg-card p-5">
             <Skeleton className="h-6 w-3/4 mb-2" />
             <Skeleton className="h-4 w-1/2 mb-6" />
