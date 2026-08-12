@@ -3,6 +3,10 @@
 Course registration system built for registration-day concurrency and data integrity.
 It is a pnpm monorepo with a NestJS API and a Next.js web app.
 
+### To login as a user from running container:
+
+- Use a user from the postgres db, all passwords are "password" for demonstration purposes _only_
+
 ## Architecture
 
 ### Runtime and data flow
