@@ -4,7 +4,7 @@
 # output so the runtime image carries a traced dependency set rather
 # than the whole node_modules tree.
 
-FROM node:22-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
@@ -37,7 +37,7 @@ RUN pnpm --filter @enroll/shared build \
  && pnpm --filter web build
 
 # ── Runtime ─────────────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3001
