@@ -60,8 +60,8 @@
   "devDependencies": {
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "prettier": "^3.3.3",
-    "turbo": "^2.10.9"
+    "prettier": "^3.9.6",
+    "turbo": "^2.10.12"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,json,md,yml,yaml,css}": "prettier --write",
