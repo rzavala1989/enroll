@@ -54,11 +54,14 @@ jobs:
       - name: Test API
         run: pnpm --filter api test
 
-      - name: Install Playwright browsers
-        run: pnpm --filter web exec playwright install --with-deps
+      - name: Test web units
+        run: pnpm --filter web test:unit
 
-      - name: Test web
-        run: pnpm --filter web test
+      - name: Install Chromium for Storybook tests
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: Test Storybook components
+        run: pnpm --filter web test:storybook
 
       - name: Build API
         run: pnpm --filter api build

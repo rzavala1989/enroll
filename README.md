@@ -248,6 +248,14 @@ and the version lives server-side.
 pnpm verify   # typecheck, lint, test, build across both apps
 ```
 
+The web tests have two Vitest projects. Run `pnpm --filter web test:unit` for
+unit and component tests in Happy DOM, or `pnpm --filter web test:storybook`
+for stories in headless Chromium. Install that browser once with
+`pnpm --filter web exec playwright install chromium`. The existing
+`pnpm --filter web test` command runs both projects; CI reports them as
+separate steps. Playwright end-to-end specs in `apps/web/e2e` are not
+collected by Vitest.
+
 Individually:
 
 ```bash
